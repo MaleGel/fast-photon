@@ -13,6 +13,7 @@
 #include <string>
 
 #include "Core/Log/Log.h"
+#include "Core/Assert/Assert.h"
 
 // ─────────────────────────────────────────────
 // ECS
@@ -31,7 +32,7 @@ struct Tag {
 // ─────────────────────────────────────────────
 #define VK_CHECK(result, msg) \
     if ((result) != VK_SUCCESS) { \
-        spdlog::error("[Vulkan] {} (code: {})", msg, static_cast<int>(result)); \
+        FP_CORE_ERROR("[Vulkan] {} (code: {})", msg, static_cast<int>(result)); \
         throw std::runtime_error(msg); \
     }
 
@@ -83,7 +84,7 @@ void initVulkan(VulkanContext& vk, SDL_Window* window, uint32_t w, uint32_t h) {
         ci.ppEnabledExtensionNames = exts.data();
 
         VK_CHECK(vkCreateInstance(&ci, nullptr, &vk.instance), "vkCreateInstance");
-        spdlog::info("Vulkan instance created");
+        FP_CORE_INFO("Vulkan instance created");
     }
 
     if (!SDL_Vulkan_CreateSurface(window, vk.instance, &vk.surface)) throw std::runtime_error("SDL_Vulkan_CreateSurface failed"); {
@@ -113,7 +114,7 @@ void initVulkan(VulkanContext& vk, SDL_Window* window, uint32_t w, uint32_t h) {
 
         VkPhysicalDeviceProperties props{};
         vkGetPhysicalDeviceProperties(vk.physicalDevice, &props);
-        spdlog::info("GPU: {}", props.deviceName);
+        FP_CORE_INFO("GPU: {}", props.deviceName);
     }
 
     {
@@ -135,7 +136,7 @@ void initVulkan(VulkanContext& vk, SDL_Window* window, uint32_t w, uint32_t h) {
 
         VK_CHECK(vkCreateDevice(vk.physicalDevice, &dci, nullptr, &vk.device), "vkCreateDevice");
         vkGetDeviceQueue(vk.device, vk.graphicsFamily, 0, &vk.graphicsQueue);
-        spdlog::info("Vulkan logical device created");
+        FP_CORE_INFO("Vulkan logical device created");
     }
 
     {
@@ -193,7 +194,7 @@ void initVulkan(VulkanContext& vk, SDL_Window* window, uint32_t w, uint32_t h) {
             ivci.subresourceRange.layerCount     = 1;
             VK_CHECK(vkCreateImageView(vk.device, &ivci, nullptr, &vk.swapImageViews[i]), "vkCreateImageView");
         }
-        spdlog::info("Swapchain created ({}x{})", vk.swapExtent.width, vk.swapExtent.height);
+        FP_CORE_INFO("Swapchain created ({}x{})", vk.swapExtent.width, vk.swapExtent.height);
     }
 
     {
@@ -287,7 +288,7 @@ void initVulkan(VulkanContext& vk, SDL_Window* window, uint32_t w, uint32_t h) {
         VK_CHECK(vkCreateDescriptorPool(vk.device, &dpci, nullptr, &vk.imguiPool), "imguiPool");
     }
 
-    spdlog::info("Vulkan init complete ✓");
+    FP_CORE_INFO("Vulkan init complete ✓");
 }
 
 // ─────────────────────────────────────────────
@@ -330,7 +331,7 @@ void setupECS(entt::registry& registry) {
     registry.emplace<Tag>(light, "PointLight");
     registry.emplace<Transform>(light, glm::vec3(3, 4, 2), glm::vec3(0.1f));
 
-    spdlog::info("ECS: {} entities created", registry.storage<entt::entity>().size());
+    FP_CORE_INFO("ECS: {} entities created", registry.storage<entt::entity>().size());
 }
 
 // ─────────────────────────────────────────────
@@ -396,7 +397,7 @@ int main(int argc, char* argv[]) {
     float fps           = 0.0f;
     uint32_t lastTick   = SDL_GetTicks();
 
-    spdlog::info("Entering main loop");
+    FP_CORE_INFO("Entering main loop");
 
     while (running) {
         // Events
