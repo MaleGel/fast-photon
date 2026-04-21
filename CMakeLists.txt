@@ -50,6 +50,7 @@ target_include_directories(cgltf INTERFACE lib/cgltf)
 # Engine source files
 set(ENGINE_SOURCES
     src/Core/Log/Log.cpp
+    src/Core/Time/Time.cpp
 )
 
 # Executable
