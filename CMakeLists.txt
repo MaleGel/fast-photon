@@ -38,7 +38,10 @@ target_include_directories(stb INTERFACE lib/stb)
 add_library(cgltf INTERFACE)
 target_include_directories(cgltf INTERFACE lib/cgltf)
 
-add_executable(FastPhotone src/main.cpp)
+add_executable(FastPhotone 
+    src/main.cpp
+    src/Core/Log/Log.cpp
+)
 
 target_link_libraries(FastPhotone PRIVATE
     Vulkan::Vulkan

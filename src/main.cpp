@@ -12,6 +12,8 @@
 #include <stdexcept>
 #include <string>
 
+#include "Core/Log/Log.h"
+
 // ─────────────────────────────────────────────
 // ECS
 // ─────────────────────────────────────────────
@@ -335,9 +337,10 @@ void setupECS(entt::registry& registry) {
 // MAIN
 // ─────────────────────────────────────────────
 int main(int argc, char* argv[]) {
+    engine::Log::init();
+
     (void)argc; (void)argv;
-    spdlog::set_level(spdlog::level::debug);
-    spdlog::info("=== Engine starting ===");
+    FP_CORE_INFO("=== fast-photon starting ===");
 
     // SDL
     if (SDL_Init(SDL_INIT_VIDEO) != 0)
@@ -353,7 +356,7 @@ int main(int argc, char* argv[]) {
         SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE
     );
     if (!window) throw std::runtime_error(SDL_GetError());
-    spdlog::info("Window created ({}x{})", WIDTH, HEIGHT);
+    FP_CORE_INFO("Window created ({}x{})", WIDTH, HEIGHT);
 
     // Vulkan
     VulkanContext vk{};
@@ -378,7 +381,7 @@ int main(int argc, char* argv[]) {
     imguiVkInfo.MinImageCount   = 2;
     imguiVkInfo.ImageCount      = static_cast<uint32_t>(vk.swapImages.size());
     ImGui_ImplVulkan_Init(&imguiVkInfo);
-    spdlog::info("ImGui initialized");
+    FP_CORE_INFO("ImGui initialized");
 
     // ECS
     entt::registry registry;
@@ -493,6 +496,6 @@ int main(int argc, char* argv[]) {
     cleanupVulkan(vk);
     SDL_DestroyWindow(window);
     SDL_Quit();
-    spdlog::info("Engine shutdown cleanly ✓");
+    FP_CORE_INFO("Engine shutdown cleanly ✓");
     return 0;
 }

@@ -16,6 +16,10 @@ _deps/
 .ninja_deps
 .ninja_log
 
+# Logs
+logs/
+*.log
+
 # ── Binaries ──────────────────────────────────────
 *.exe
 *.out
