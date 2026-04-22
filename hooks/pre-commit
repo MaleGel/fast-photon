@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Git pre-commit shim: locates the project venv and runs pre-commit.py
+# with it. Installed into .git/hooks/ by scripts/install_hooks.sh.
+
+set -euo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+VENV_DIR="$REPO_ROOT/venv"
+
+if [ -x "$VENV_DIR/Scripts/python.exe" ]; then
+    PY="$VENV_DIR/Scripts/python.exe"
+elif [ -x "$VENV_DIR/bin/python" ]; then
+    PY="$VENV_DIR/bin/python"
+else
+    echo "pre-commit: venv not found at $VENV_DIR. Run scripts/setup_venv.sh." >&2
+    exit 1
+fi
+
+exec "$PY" "$REPO_ROOT/hooks/pre-commit.py"

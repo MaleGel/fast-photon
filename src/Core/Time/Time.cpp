@@ -17,8 +17,6 @@ float Time::s_smoothFps      = 0.0f;
 float Time::s_fpsSmoothing   = 0.9f;
 int   Time::s_frameCount     = 0;
 
-std::vector<Timer*> Time::s_timers;
-
 // ── init ──────────────────────────────────────────────────────────
 void Time::init() {
     s_startTime     = Clock::now();
@@ -54,14 +52,5 @@ bool Time::fixedUpdate() {
     return false;
 }
 
-// Timers
-Timer Time::makeTimer(float duration, bool looping, std::function<void()> cb) {
-    return Timer(duration, looping, std::move(cb));
-}
-
-void Time::tickTimers() {
-    for (auto* timer : s_timers)
-        timer->tick(s_deltaTime);
-}
 
 } // namespace engine

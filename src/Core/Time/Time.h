@@ -1,8 +1,6 @@
 #pragma once
 #include <chrono>
-#include <string>
 #include <functional>
-#include <vector>
 
 namespace engine {
 
@@ -16,8 +14,7 @@ struct Timer {
     std::function<void()> onFinish;
 
     Timer() = default;
-    Timer(float duration, bool looping = false, std::function<void()> cb = nullptr)
-        : duration(duration), looping(looping), onFinish(std::move(cb)) {}
+    Timer(float duration, bool looping = false, std::function<void()> cb = nullptr) : duration(duration), looping(looping), onFinish(std::move(cb)) {}
 
     void tick(float dt) {
         if (finished && !looping) return;
@@ -65,10 +62,6 @@ public:
     static void setMaxDeltaTime(float maxDt) { s_maxDeltaTime = maxDt; }
     static void setFpsSmoothing(float alpha) { s_fpsSmoothing = alpha; }
 
-    // Timers
-    static Timer  makeTimer(float duration, bool looping = false,
-                            std::function<void()> cb = nullptr);
-    static void   tickTimers();
 
 private:
     static TimePoint s_startTime;
@@ -85,7 +78,6 @@ private:
     static float s_fpsSmoothing;
     static int   s_frameCount;
 
-    static std::vector<Timer*> s_timers;
 };
 
 } // namespace engine

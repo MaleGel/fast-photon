@@ -1,6 +1,8 @@
 #pragma once
 #include "Core/Log/Log.h"
 #include <filesystem>
+#include <cstdio>
+#include <cstdlib>
 
 #if defined(_MSC_VER) || defined(__clang__)
     #define FP_DEBUGBREAK() __debugbreak()
@@ -11,47 +13,35 @@
     #define FP_DEBUGBREAK() raise(SIGTRAP)
 #endif
 
+#ifdef FP_DEBUG
+    #define FP_ASSERT_HALT() FP_DEBUGBREAK()
+#else
+    #define FP_ASSERT_HALT() std::abort()
+#endif
+
 #define FP_FILENAME \
     std::filesystem::path(__FILE__).filename().string().c_str()
 
-#define FP_INTERNAL_ASSERT_IMPL(logger, condition, msg, ...)        \
-    do {                                                            \
-        if (!(condition)) {                                         \
-            logger("[ASSERT FAILED] Condition: " #condition "\n"   \
-                   "  Message : " msg "\n"                         \
-                   "  File    : {}:{}" ,                           \
-                   ##__VA_ARGS__, FP_FILENAME, __LINE__);          \
-            FP_DEBUGBREAK();                                        \
-        }                                                           \
+#define FP_INTERNAL_ASSERT_IMPL(logger, condition, msg, ...)                       \
+    do {                                                                           \
+        if (!(condition)) {                                                        \
+            if (::engine::Log::isInitialized()) {                                 \
+                logger("[ASSERT FAILED] Condition: " #condition "\n"              \
+                       "  Message : " msg "\n"                                    \
+                       "  File    : {}:{}",                                       \
+                       ##__VA_ARGS__, FP_FILENAME, __LINE__);                     \
+            } else {                                                               \
+                std::fprintf(stderr,                                               \
+                    "[ASSERT FAILED] Condition: " #condition "\n"                 \
+                    "  File    : %s:%d\n",                                        \
+                    FP_FILENAME, __LINE__);                                       \
+            }                                                                      \
+            FP_ASSERT_HALT();                                                      \
+        }                                                                          \
     } while(0)
 
-#ifdef FP_DEBUG
+#define FP_CORE_ASSERT(condition, msg, ...) \
+    FP_INTERNAL_ASSERT_IMPL(FP_CORE_CRITICAL, condition, msg, ##__VA_ARGS__)
 
-    #define FP_CORE_ASSERT(condition, msg, ...) \
-        FP_INTERNAL_ASSERT_IMPL(FP_CORE_CRITICAL, condition, msg, ##__VA_ARGS__)
-
-    #define FP_ASSERT(condition, msg, ...) \
-        FP_INTERNAL_ASSERT_IMPL(FP_CRITICAL, condition, msg, ##__VA_ARGS__)
-
-#else
-    #define FP_CORE_ASSERT(condition, msg, ...)                         \
-        do {                                                            \
-            if (!(condition)) {                                         \
-                FP_CORE_ERROR("[ASSERT] Condition: " #condition "\n"   \
-                              "  Message : " msg "\n"                  \
-                              "  File    : {}:{}",                     \
-                              ##__VA_ARGS__, FP_FILENAME, __LINE__);   \
-            }                                                           \
-        } while(0)
-
-    #define FP_ASSERT(condition, msg, ...)                              \
-        do {                                                            \
-            if (!(condition)) {                                         \
-                FP_ERROR("[ASSERT] Condition: " #condition "\n"        \
-                         "  Message : " msg "\n"                       \
-                         "  File    : {}:{}",                          \
-                         ##__VA_ARGS__, FP_FILENAME, __LINE__);        \
-            }                                                           \
-        } while(0)
-
-#endif // FP_DEBUG
+#define FP_ASSERT(condition, msg, ...) \
+    FP_INTERNAL_ASSERT_IMPL(FP_CRITICAL, condition, msg, ##__VA_ARGS__)

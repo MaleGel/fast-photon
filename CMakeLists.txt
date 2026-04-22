@@ -47,10 +47,35 @@ target_include_directories(stb INTERFACE lib/stb)
 add_library(cgltf INTERFACE)
 target_include_directories(cgltf INTERFACE lib/cgltf)
 
+# nlohmann/json
+add_library(nlohmann_json INTERFACE)
+target_include_directories(nlohmann_json INTERFACE lib/json/include)
+
 # Engine source files
 set(ENGINE_SOURCES
     src/Core/Log/Log.cpp
     src/Core/Time/Time.cpp
+    src/Core/StringAtom/StringAtom.cpp
+    src/Platform/Window/Window.cpp
+    src/Platform/Input/Input.cpp
+    src/Renderer/VulkanContext.cpp
+    src/Renderer/Swapchain.cpp
+    src/Renderer/RenderPass.cpp
+    src/Renderer/ResourceManager.cpp
+    src/Renderer/ShaderCache.cpp
+    src/Renderer/TextureCache.cpp
+    src/Renderer/Texture.cpp
+    src/Renderer/MaterialRegistry.cpp
+    src/Renderer/SpriteRegistry.cpp
+    src/Renderer/StbImpl.cpp
+    src/Renderer/Pipeline.cpp
+    src/Renderer/DescriptorAllocator.cpp
+    src/Renderer/Vma.cpp
+    src/Renderer/VertexBuffer.cpp
+    src/Renderer/GridRenderer.cpp
+    src/ECS/Systems/RenderSystem.cpp
+    src/Gameplay/GridMap/GridMap.cpp
+    src/Gameplay/TurnManager/TurnManager.cpp
 )
 
 # Executable
@@ -82,4 +107,45 @@ target_link_libraries(FastPhotone PRIVATE
     imgui
     stb
     cgltf
+    nlohmann_json
+)
+
+# ── Shader compilation (GLSL → SPIR-V via glslc) ──────────────────────
+# glslc ships with the Vulkan SDK. Newer CMake (3.21+) sets Vulkan_GLSLC_EXECUTABLE
+# through find_package(Vulkan); fall back to manual lookup on older systems.
+if(NOT Vulkan_GLSLC_EXECUTABLE)
+    find_program(Vulkan_GLSLC_EXECUTABLE glslc HINTS ENV VULKAN_SDK PATH_SUFFIXES Bin bin)
+endif()
+if(NOT Vulkan_GLSLC_EXECUTABLE)
+    message(FATAL_ERROR "glslc not found. Install Vulkan SDK or set VULKAN_SDK env.")
+endif()
+message(STATUS "Using glslc: ${Vulkan_GLSLC_EXECUTABLE}")
+
+set(SHADER_SOURCES
+    ${CMAKE_SOURCE_DIR}/assets/shaders/grid.vert
+    ${CMAKE_SOURCE_DIR}/assets/shaders/grid.frag
+)
+
+set(SHADER_OUTPUTS)
+foreach(SHADER ${SHADER_SOURCES})
+    set(SPV "${SHADER}.spv")
+    add_custom_command(
+        OUTPUT  ${SPV}
+        COMMAND ${Vulkan_GLSLC_EXECUTABLE} ${SHADER} -o ${SPV}
+        DEPENDS ${SHADER}
+        COMMENT "Compiling shader ${SHADER}"
+        VERBATIM
+    )
+    list(APPEND SHADER_OUTPUTS ${SPV})
+endforeach()
+
+add_custom_target(Shaders DEPENDS ${SHADER_OUTPUTS})
+add_dependencies(FastPhotone Shaders)
+
+# Copy assets folder next to the executable after build
+add_custom_command(TARGET FastPhotone POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        ${CMAKE_SOURCE_DIR}/assets
+        $<TARGET_FILE_DIR:FastPhotone>/assets
+    COMMENT "Copying assets to output directory"
 )

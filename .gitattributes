@@ -1,0 +1,8 @@
+# Shell scripts MUST stay LF — bash on Linux/macOS won't run CRLF scripts.
+*.sh  text eol=lf
+
+# Python scripts also standardize on LF.
+*.py  text eol=lf
+
+# Git hooks (no extension) — same rule.
+hooks/* text eol=lf

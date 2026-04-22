@@ -1,0 +1,78 @@
+{
+    "shaders": [
+        {
+            "name": "grid_vert",
+            "path": "assets/shaders/grid.vert.spv"
+        },
+        {
+            "name": "grid_frag",
+            "path": "assets/shaders/grid.frag.spv"
+        }
+    ],
+    "textures": [
+        {
+            "name": "tile",
+            "path": "assets/textures/tile.png"
+        }
+    ],
+    "sprites": [
+        {
+            "name": "tile",
+            "texture": "tile",
+            "x": 0,
+            "y": 0,
+            "w": 64,
+            "h": 64
+        }
+    ],
+    "materials": [
+        {
+            "name": "tile_grass",
+            "vert": "grid_vert",
+            "frag": "grid_frag",
+            "texture": "tile",
+            "color": [
+                0.7,
+                1.0,
+                0.7,
+                1.0
+            ]
+        },
+        {
+            "name": "tile_forest",
+            "vert": "grid_vert",
+            "frag": "grid_frag",
+            "texture": "tile",
+            "color": [
+                0.4,
+                0.7,
+                0.4,
+                1.0
+            ]
+        },
+        {
+            "name": "tile_mountain",
+            "vert": "grid_vert",
+            "frag": "grid_frag",
+            "texture": "tile",
+            "color": [
+                0.8,
+                0.8,
+                0.8,
+                1.0
+            ]
+        },
+        {
+            "name": "tile_water",
+            "vert": "grid_vert",
+            "frag": "grid_frag",
+            "texture": "tile",
+            "color": [
+                0.5,
+                0.7,
+                1.0,
+                1.0
+            ]
+        }
+    ]
+}

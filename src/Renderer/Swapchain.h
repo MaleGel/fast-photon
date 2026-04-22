@@ -1,0 +1,34 @@
+#pragma once
+#include <vulkan/vulkan.h>
+#include <vector>
+#include <cstdint>
+
+namespace engine {
+
+class VulkanContext;
+
+class Swapchain {
+public:
+    void init(const VulkanContext& ctx, uint32_t width, uint32_t height);
+    void shutdown(const VulkanContext& ctx);
+
+    VkSwapchainKHR             handle()      const { return m_swapchain;  }
+    VkFormat                   format()      const { return m_format;     }
+    VkExtent2D                 extent()      const { return m_extent;     }
+    const std::vector<VkImage>&     images()      const { return m_images;     }
+    const std::vector<VkImageView>& imageViews()  const { return m_imageViews; }
+
+    uint32_t imageCount() const { return static_cast<uint32_t>(m_images.size()); }
+
+private:
+    void createSwapchain(const VulkanContext& ctx, uint32_t width, uint32_t height);
+    void createImageViews(const VulkanContext& ctx);
+
+    VkSwapchainKHR        m_swapchain  = VK_NULL_HANDLE;
+    VkFormat              m_format     = VK_FORMAT_UNDEFINED;
+    VkExtent2D            m_extent     = {};
+    std::vector<VkImage>     m_images;
+    std::vector<VkImageView> m_imageViews;
+};
+
+} // namespace engine
