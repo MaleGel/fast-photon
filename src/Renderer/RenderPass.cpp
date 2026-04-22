@@ -16,9 +16,24 @@ void RenderPass::init(const VulkanContext& ctx, const Swapchain& swapchain) {
 void RenderPass::shutdown(const VulkanContext& ctx) {
     for (auto fb : m_framebuffers)
         vkDestroyFramebuffer(ctx.device(), fb, nullptr);
+    m_framebuffers.clear();
 
     vkDestroyRenderPass(ctx.device(), m_renderPass, nullptr);
+    m_renderPass = VK_NULL_HANDLE;
     FP_CORE_TRACE("RenderPass destroyed");
+}
+
+void RenderPass::recreateFramebuffers(const VulkanContext& ctx, const Swapchain& swapchain) {
+    for (auto fb : m_framebuffers)
+        vkDestroyFramebuffer(ctx.device(), fb, nullptr);
+    m_framebuffers.clear();
+
+    // Skip rebuilding when the swapchain itself is suspended — framebuffers
+    // will be recreated on the next valid resize.
+    if (!swapchain.canPresent()) return;
+
+    createFramebuffers(ctx, swapchain);
+    FP_CORE_TRACE("RenderPass framebuffers recreated ({})", m_framebuffers.size());
 }
 
 // ── Private ───────────────────────────────────────────────────────

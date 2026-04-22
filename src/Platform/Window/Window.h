@@ -29,6 +29,13 @@ public:
     uint32_t    getHeight() const { return m_height; }
     const std::string& getTitle() const { return m_title;  }
 
+    // Update cached size after an OS-level resize. Does not resize the window
+    // itself — used by the event pump to keep the cached state in sync.
+    void notifyResized(uint32_t width, uint32_t height) {
+        m_width  = width;
+        m_height = height;
+    }
+
     void setTitle(const std::string& title);
 
     // Return raw SDL_Window* — needed only for Vulkan/ImGui

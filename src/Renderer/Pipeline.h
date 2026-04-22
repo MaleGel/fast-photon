@@ -1,6 +1,7 @@
 #pragma once
 #include "ResourceTypes.h"
 #include <vulkan/vulkan.h>
+#include <vector>
 
 namespace engine {
 
@@ -9,10 +10,11 @@ class RenderPass;
 class ResourceManager;
 
 struct PipelineConfig {
-    ShaderID              vertShader;
-    ShaderID              fragShader;
-    uint32_t              pushConstantSize = 0;                 // bytes, 0 = none
-    VkDescriptorSetLayout descriptorLayout = VK_NULL_HANDLE;    // optional
+    ShaderID                           vertShader;
+    ShaderID                           fragShader;
+    uint32_t                           pushConstantSize = 0;   // bytes, 0 = none
+    // One entry per descriptor 'set' index, in order. Empty = no sets.
+    std::vector<VkDescriptorSetLayout> descriptorLayouts;
 };
 
 class Pipeline {

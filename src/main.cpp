@@ -14,10 +14,11 @@
 #include "Core/Time/Time.h"
 #include "Core/Events/EventBus.h"
 #include "App/AppController.h"
+#include "App/GameLoop.h"
 #include "Platform/Window/Window.h"
 #include "Platform/Window/WindowEvents.h"
 #include "Platform/Input/Input.h"
-#include "Platform/Input/InputEvents.h"
+#include "Platform/Input/InputMap.h"
 #include "Renderer/VulkanContext.h"
 #include "Renderer/Swapchain.h"
 #include "Renderer/RenderPass.h"
@@ -29,17 +30,37 @@
 #include "ECS/Components/GridComponent.h"
 #include "ECS/Components/RenderComponent.h"
 #include "ECS/Components/FactionComponent.h"
+#include "ECS/Components/Camera/CameraComponent2D.h"
+#include "ECS/Components/Camera/ActiveCameraTag.h"
+#include "ECS/Components/Camera/CameraConfig.h"
 #include "ECS/Systems/RenderSystem.h"
+#include "ECS/Systems/CameraController.h"
 #include "Gameplay/GridMap/GridMap.h"
 #include "Gameplay/TurnManager/TurnManager.h"
-#include "Gameplay/TurnManager/TurnEvents.h"
 
 // ── ECS setup ────────────────────────────────────────────────────
-static void setupECS(entt::registry& registry, engine::GridMap& map) {
+static void setupECS(entt::registry& registry, engine::GridMap& map,
+                     float aspectRatio) {
+    // Camera tuning comes from disk; only runtime-known fields (aspect ratio)
+    // stay code-side.
+    const engine::CameraConfig camCfg =
+        engine::loadCameraConfig("assets/data/camera_config.json");
+
     auto camera = registry.create();
     registry.emplace<engine::TagComponent>(camera, "Camera");
-    registry.emplace<engine::TransformComponent>(camera, glm::vec3(0, 0, -5));
-    registry.emplace<engine::RenderComponent>(camera, glm::vec4(1, 1, 1, 1));
+    // Center on the 8x8 map.
+    registry.emplace<engine::TransformComponent>(camera, glm::vec3(4.f, 4.f, 0.f));
+    registry.emplace<engine::CameraComponent2D>(camera, engine::CameraComponent2D{
+        /*zoom*/        camCfg.zoom,
+        /*aspectRatio*/ aspectRatio,
+        /*nearPlane*/   camCfg.nearPlane,
+        /*farPlane*/    camCfg.farPlane,
+        /*panSpeed*/    camCfg.panSpeed,
+        /*zoomStep*/    camCfg.zoomStep,
+        /*zoomMin*/     camCfg.zoomMin,
+        /*zoomMax*/     camCfg.zoomMax,
+    });
+    registry.emplace<engine::ActiveCameraTag>(camera);
 
     auto warrior = registry.create();
     registry.emplace<engine::TagComponent>(warrior, "Warrior");
@@ -118,6 +139,10 @@ int main(int argc, char* argv[]) {
     }
 
     engine::EventBus      eventBus;
+    engine::InputMap      inputMap;
+    inputMap.init(eventBus);
+    inputMap.loadBindings("assets/data/input_bindings.json");
+
     engine::AppController appController;
     appController.init(eventBus);
 
@@ -193,48 +218,92 @@ int main(int argc, char* argv[]) {
 
     // ECS
     entt::registry registry;
-    setupECS(registry, map);
+    const float startAspect =
+        static_cast<float>(swapchain.extent().width) /
+        static_cast<float>(swapchain.extent().height);
+    setupECS(registry, map, startAspect);
 
     // TurnManager
     engine::TurnManager turnManager;
     turnManager.init(eventBus, { engine::Faction::Player, engine::Faction::Enemy });
 
-    // Translate Enter key into an end-turn request. Staying local in main
-    // keeps the binding trivially visible; any system could do the same.
-    auto endTurnSub = eventBus.subscribe<engine::KeyPressedEvent>(
-        [&turnManager](const engine::KeyPressedEvent& e) {
-            if (e.key == SDLK_RETURN) turnManager.endTurn();
+    // End-turn binding is driven by the 'turn.end' action. The physical key
+    // (Return by default) lives in assets/data/input_bindings.json — not here.
+    static const engine::ActionID kTurnEnd("turn.end");
+    auto endTurnSub = eventBus.subscribe<engine::ActionTriggeredEvent>(
+        [&turnManager](const engine::ActionTriggeredEvent& e) {
+            if (e.action == kTurnEnd) turnManager.endTurn();
+        });
+
+    // React to window resize: rebuild swapchain + framebuffers so that the
+    // next frame renders into buffers matching the new client area.
+    auto resizeSub = eventBus.subscribe<engine::WindowResizedEvent>(
+        [&](const engine::WindowResizedEvent& e) {
+            vkDeviceWaitIdle(vkCtx.device());
+            swapchain.recreate(vkCtx, e.width, e.height);
+            renderPass.recreateFramebuffers(vkCtx, swapchain);
+        });
+
+    // Keep the active camera's aspect ratio in sync with the window.
+    auto cameraAspectSub = eventBus.subscribe<engine::WindowResizedEvent>(
+        [&registry](const engine::WindowResizedEvent& e) {
+            if (e.width == 0 || e.height == 0) return;
+            const float aspect = static_cast<float>(e.width) /
+                                 static_cast<float>(e.height);
+            auto view = registry.view<engine::ActiveCameraTag,
+                                      engine::CameraComponent2D>();
+            for (auto entity : view) {
+                view.get<engine::CameraComponent2D>(entity).aspectRatio = aspect;
+            }
         });
 
     // Systems
     engine::RenderSystem renderSystem;
     renderSystem.init(registry);
 
+    engine::CameraController cameraController;
+    cameraController.init(registry, inputMap, eventBus);
+
     // ── Main loop ─────────────────────────────────────────────────
     float     clearColor[3] = { 0.1f, 0.1f, 0.18f };
-    SDL_Event event;
 
     engine::Time::init();
-    FP_CORE_INFO("Entering main loop");
 
-    while (!appController.shouldQuit()) {
+    engine::GameLoopCallbacks callbacks;
+
+    callbacks.onPumpEvents = [&]() {
         engine::Input::beginFrame();
-        engine::Time::tick();
 
+        SDL_Event event;
         while (SDL_PollEvent(&event)) {
             ImGui_ImplSDL2_ProcessEvent(&event);
             engine::Input::processEvent(event, eventBus);
-            if (event.type == SDL_QUIT)
+            if (event.type == SDL_QUIT) {
                 eventBus.publish(engine::AppQuitRequestedEvent{});
+            } else if (event.type == SDL_WINDOWEVENT &&
+                       event.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
+                const uint32_t w = static_cast<uint32_t>(event.window.data1);
+                const uint32_t h = static_cast<uint32_t>(event.window.data2);
+                window.notifyResized(w, h);
+                eventBus.publish(engine::WindowResizedEvent{ w, h });
+            }
         }
+    };
 
+    callbacks.onFixedUpdate = [&](float fixedDt) {
+        // No simulation systems yet — this is where movement, AI, and
+        // physics will hook in once they exist.
+        (void)fixedDt;
+    };
+
+    callbacks.onUpdate = [&](float realDt) {
         // ImGui frame
         ImGui_ImplVulkan_NewFrame();
         ImGui_ImplSDL2_NewFrame();
         ImGui::NewFrame();
 
         ImGui::Begin("Engine Debug");
-        ImGui::Text("FPS: %.1f  dt: %.2fms", FP_FPS, FP_DELTA_TIME * 1000.0f);
+        ImGui::Text("FPS: %.1f  dt: %.2fms", FP_FPS, realDt * 1000.0f);
         ImGui::Separator();
         ImGui::ColorEdit3("Clear color", clearColor);
         ImGui::Separator();
@@ -245,17 +314,34 @@ int main(int argc, char* argv[]) {
         ImGui::Text("[Enter] End turn");
         ImGui::End();
 
-        renderSystem.update(registry, FP_DELTA_TIME);
+        cameraController.update(registry, realDt);
+        renderSystem.update(registry, realDt);
 
         ImGui::Render();
+    };
 
-        // Vulkan frame
+    callbacks.onRender = [&](float alpha) {
+        // Swapchain is suspended (e.g. window minimized) — skip the frame.
+        if (!swapchain.canPresent()) return;
+
         vkWaitForFences(vkCtx.device(), 1, &inFlight, VK_TRUE, UINT64_MAX);
-        vkResetFences(vkCtx.device(), 1, &inFlight);
 
         uint32_t imageIndex = 0;
-        vkAcquireNextImageKHR(vkCtx.device(), swapchain.handle(), UINT64_MAX,
-                              imageAvailable, VK_NULL_HANDLE, &imageIndex);
+        VkResult acquireRes = vkAcquireNextImageKHR(
+            vkCtx.device(), swapchain.handle(), UINT64_MAX,
+            imageAvailable, VK_NULL_HANDLE, &imageIndex);
+
+        // OUT_OF_DATE: swapchain no longer matches the surface — rebuild and
+        // try again next frame. The fence stays signalled (we skipped reset).
+        if (acquireRes == VK_ERROR_OUT_OF_DATE_KHR) {
+            vkDeviceWaitIdle(vkCtx.device());
+            swapchain.recreate(vkCtx, window.getWidth(), window.getHeight());
+            renderPass.recreateFramebuffers(vkCtx, swapchain);
+            return;
+        }
+        // SUBOPTIMAL is still renderable; we'll rebuild after present.
+
+        vkResetFences(vkCtx.device(), 1, &inFlight);
 
         vkResetCommandBuffer(cmdBuffer, 0);
 
@@ -275,7 +361,7 @@ int main(int argc, char* argv[]) {
 
         vkCmdBeginRenderPass(cmdBuffer, &rpBegin, VK_SUBPASS_CONTENTS_INLINE);
 
-        gridRenderer.draw(cmdBuffer, swapchain, map);
+        gridRenderer.draw(cmdBuffer, swapchain, map, registry, alpha);
 
         ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmdBuffer);
         vkCmdEndRenderPass(cmdBuffer);
@@ -301,8 +387,20 @@ int main(int argc, char* argv[]) {
         present.swapchainCount     = 1;
         present.pSwapchains        = &sc;
         present.pImageIndices      = &imageIndex;
-        vkQueuePresentKHR(vkCtx.graphicsQueue(), &present);
-    }
+        VkResult presentRes = vkQueuePresentKHR(vkCtx.graphicsQueue(), &present);
+
+        // Swapchain went out of date between acquire and present, or is
+        // SUBOPTIMAL and we want it to match the surface perfectly — rebuild.
+        if (presentRes == VK_ERROR_OUT_OF_DATE_KHR ||
+            presentRes == VK_SUBOPTIMAL_KHR) {
+            vkDeviceWaitIdle(vkCtx.device());
+            swapchain.recreate(vkCtx, window.getWidth(), window.getHeight());
+            renderPass.recreateFramebuffers(vkCtx, swapchain);
+        }
+    };
+
+    engine::GameLoop loop;
+    loop.run(appController, callbacks);
 
     // ── Cleanup (reverse init order) ──────────────────────────────
     vkDeviceWaitIdle(vkCtx.device());
@@ -319,7 +417,11 @@ int main(int argc, char* argv[]) {
 
     // Release subscriptions before the bus goes out of scope.
     endTurnSub.release();
+    resizeSub.release();
+    cameraAspectSub.release();
+    cameraController.shutdown(registry);
     appController.shutdown();
+    inputMap.shutdown();
 
     gridRenderer.shutdown(vkCtx);
     descriptors.shutdown(vkCtx);

@@ -12,6 +12,10 @@ public:
     void init(const VulkanContext& ctx, const Swapchain& swapchain);
     void shutdown(const VulkanContext& ctx);
 
+    // Rebuild framebuffers for the current swapchain image views (e.g. after
+    // a swapchain recreate). The VkRenderPass itself stays the same.
+    void recreateFramebuffers(const VulkanContext& ctx, const Swapchain& swapchain);
+
     VkRenderPass                    handle()       const { return m_renderPass;  }
     const std::vector<VkFramebuffer>& framebuffers() const { return m_framebuffers; }
 

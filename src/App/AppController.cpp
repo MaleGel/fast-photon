@@ -1,12 +1,12 @@
 #include "AppController.h"
 #include "Core/Events/EventBus.h"
 #include "Core/Log/Log.h"
-#include "Platform/Input/InputEvents.h"
+#include "Platform/Input/InputMap.h"
 #include "Platform/Window/WindowEvents.h"
 
-#include <SDL2/SDL_keycode.h>
-
 namespace engine {
+
+static const ActionID kAppQuit("app.quit");
 
 void AppController::init(EventBus& bus) {
     m_quitRequested = false;
@@ -17,10 +17,11 @@ void AppController::init(EventBus& bus) {
             requestQuit();
         });
 
-    m_escapeSub = bus.subscribe<KeyPressedEvent>(
-        [this](const KeyPressedEvent& e) {
-            if (e.key == SDLK_ESCAPE) {
-                FP_CORE_INFO("AppController: quit requested (Escape)");
+    m_escapeSub = bus.subscribe<ActionTriggeredEvent>(
+        [this](const ActionTriggeredEvent& e) {
+            if (e.action == kAppQuit) {
+                FP_CORE_INFO("AppController: quit requested (action '{}')",
+                             e.action.c_str());
                 requestQuit();
             }
         });

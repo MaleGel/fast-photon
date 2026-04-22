@@ -112,9 +112,9 @@ void Pipeline::init(const VulkanContext& ctx, const RenderPass& renderPass,
         layoutCI.pPushConstantRanges    = &pcRange;
     }
 
-    if (config.descriptorLayout != VK_NULL_HANDLE) {
-        layoutCI.setLayoutCount = 1;
-        layoutCI.pSetLayouts    = &config.descriptorLayout;
+    if (!config.descriptorLayouts.empty()) {
+        layoutCI.setLayoutCount = static_cast<uint32_t>(config.descriptorLayouts.size());
+        layoutCI.pSetLayouts    = config.descriptorLayouts.data();
     }
 
     if (vkCreatePipelineLayout(ctx.device(), &layoutCI, nullptr, &m_layout) != VK_SUCCESS)

@@ -52,5 +52,9 @@ bool Time::fixedUpdate() {
     return false;
 }
 
+float Time::interpolationAlpha() {
+    return s_fixedDeltaTime > 0.0f ? s_accumulator / s_fixedDeltaTime : 0.0f;
+}
+
 
 } // namespace engine

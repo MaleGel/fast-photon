@@ -57,6 +57,10 @@ public:
     // Fixed timestep
     static bool  fixedUpdate();
 
+    // How far into the next fixed step the renderer is (0..1).
+    // Use for interpolating between last and current fixed-state snapshots.
+    static float interpolationAlpha();
+
     // Settings
     static void setFixedDeltaTime(float dt)  { s_fixedDeltaTime = dt; }
     static void setMaxDeltaTime(float maxDt) { s_maxDeltaTime = maxDt; }

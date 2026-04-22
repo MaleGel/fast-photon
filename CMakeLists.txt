@@ -58,8 +58,10 @@ set(ENGINE_SOURCES
     src/Core/StringAtom/StringAtom.cpp
     src/Core/Events/EventBus.cpp
     src/App/AppController.cpp
+    src/App/GameLoop.cpp
     src/Platform/Window/Window.cpp
     src/Platform/Input/Input.cpp
+    src/Platform/Input/InputMap.cpp
     src/Renderer/VulkanContext.cpp
     src/Renderer/Swapchain.cpp
     src/Renderer/RenderPass.cpp
@@ -74,8 +76,11 @@ set(ENGINE_SOURCES
     src/Renderer/DescriptorAllocator.cpp
     src/Renderer/Vma.cpp
     src/Renderer/VertexBuffer.cpp
+    src/Renderer/UniformBuffer.cpp
     src/Renderer/GridRenderer.cpp
     src/ECS/Systems/RenderSystem.cpp
+    src/ECS/Systems/CameraController.cpp
+    src/ECS/Components/Camera/CameraConfig.cpp
     src/Gameplay/GridMap/GridMap.cpp
     src/Gameplay/TurnManager/TurnManager.cpp
 )
@@ -96,6 +101,7 @@ target_include_directories(FastPhotone PRIVATE
 target_compile_definitions(FastPhotone PRIVATE
     $<$<CONFIG:Debug>:FP_DEBUG>
     $<$<CONFIG:RelWithDebInfo>:FP_DEBUG>
+    GLM_FORCE_DEPTH_ZERO_TO_ONE   # Vulkan clip space: z in [0,1]
 )
 
 target_link_libraries(FastPhotone PRIVATE

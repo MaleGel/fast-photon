@@ -15,14 +15,40 @@ void Swapchain::init(const VulkanContext& ctx, uint32_t width, uint32_t height) 
 }
 
 void Swapchain::shutdown(const VulkanContext& ctx) {
-    for (auto iv : m_imageViews)
-        vkDestroyImageView(ctx.device(), iv, nullptr);
-
-    vkDestroySwapchainKHR(ctx.device(), m_swapchain, nullptr);
+    destroyResources(ctx);
     FP_CORE_TRACE("Swapchain destroyed");
 }
 
+void Swapchain::recreate(const VulkanContext& ctx, uint32_t width, uint32_t height) {
+    // Safe to destroy first — caller must have issued vkDeviceWaitIdle.
+    destroyResources(ctx);
+
+    if (width == 0 || height == 0) {
+        // Window is minimized or zero-sized. Stay in "cannot present" state
+        // until a subsequent recreate() with a valid size.
+        m_extent = { 0, 0 };
+        FP_CORE_TRACE("Swapchain recreate skipped (size {}x{})", width, height);
+        return;
+    }
+
+    createSwapchain(ctx, width, height);
+    createImageViews(ctx);
+    FP_CORE_INFO("Swapchain recreated ({}x{})", m_extent.width, m_extent.height);
+}
+
 // ── Private ───────────────────────────────────────────────────────
+
+void Swapchain::destroyResources(const VulkanContext& ctx) {
+    for (auto iv : m_imageViews)
+        vkDestroyImageView(ctx.device(), iv, nullptr);
+    m_imageViews.clear();
+    m_images.clear();
+
+    if (m_swapchain != VK_NULL_HANDLE) {
+        vkDestroySwapchainKHR(ctx.device(), m_swapchain, nullptr);
+        m_swapchain = VK_NULL_HANDLE;
+    }
+}
 
 void Swapchain::createSwapchain(const VulkanContext& ctx, uint32_t width, uint32_t height) {
     VkSurfaceCapabilitiesKHR caps{};

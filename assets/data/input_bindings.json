@@ -1,0 +1,14 @@
+{
+    "actions": {
+        "app.quit":           ["Escape"],
+        "turn.end":           ["Return"],
+
+        "camera.pan_left":    ["A", "Left"],
+        "camera.pan_right":   ["D", "Right"],
+        "camera.pan_up":      ["W", "Up"],
+        "camera.pan_down":    ["S", "Down"],
+
+        "camera.zoom_in":     ["MouseWheelUp"],
+        "camera.zoom_out":    ["MouseWheelDown"]
+    }
+}

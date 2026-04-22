@@ -1,0 +1,10 @@
+{
+    "zoom":      4.0,
+    "nearPlane": -1.0,
+    "farPlane":  1.0,
+
+    "panSpeed":  6.0,
+    "zoomStep":  0.9,
+    "zoomMin":   1.0,
+    "zoomMax":   20.0
+}
