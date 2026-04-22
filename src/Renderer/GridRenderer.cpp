@@ -5,18 +5,17 @@
 #include "ResourceManager.h"
 #include "DescriptorAllocator.h"
 #include "Texture.h"
+#include "Sprite.h"
 #include "Gameplay/GridMap/GridMap.h"
 #include "Core/Log/Log.h"
 #include "Core/Assert/Assert.h"
 
 #include <array>
-#include <vector>
 
 namespace engine {
 
 // NDC square: two triangles forming a unit quad centered at origin.
-// Vertex layout: vec2 position + vec2 uv.
-// UV origin (0,0) at top-left corner of the quad — matches Vulkan image coords.
+// Vertex layout: vec2 position + vec2 uv (in [0,1] over the quad itself).
 static constexpr std::array<float, 6 * 4> k_unitQuad = {
     // pos          uv
     -0.5f, -0.5f,   0.f, 0.f,
@@ -40,12 +39,41 @@ static TileColor colorForType(TileType type) {
     return { 1.f, 0.f, 1.f, 1.f };
 }
 
+// Push-constant block — matches grid.vert / grid.frag layout exactly.
+// Total: 48 bytes (well under the 128-byte Vulkan minimum).
+struct alignas(16) GridPushConstants {
+    float offsetX, offsetY;
+    float scaleX,  scaleY;
+    float r, g, b, a;
+    float u0, v0, u1, v1;   // uv sub-rect inside the bound texture
+};
+
 // ── Public ────────────────────────────────────────────────────────────────────
 
 void GridRenderer::init(const VulkanContext& ctx, const RenderPass& renderPass,
                         const ResourceManager& resources, DescriptorAllocator& descriptors,
-                        const GridMap& /*map*/, TextureID tileTexture) {
-    // ── 1. Descriptor set layout: one combined image+sampler for fragment ────
+                        const GridMap& /*map*/, SpriteID tileSprite) {
+    // ── 1. Resolve sprite → texture + pixel rect → normalized UV rect ───────
+    const Sprite* sprite = resources.getSprite(tileSprite);
+    FP_CORE_ASSERT(sprite != nullptr, "Tile sprite '{}' not registered", tileSprite.c_str());
+
+    const Texture* tex = resources.getTexture(sprite->texture);
+    FP_CORE_ASSERT(tex && tex->isValid(),
+                   "Sprite '{}' references missing texture '{}'",
+                   tileSprite.c_str(), sprite->texture.c_str());
+
+    // Half-pixel inset: with linear filtering, sampling exactly at the
+    // sub-rect boundary blends in neighbouring atlas pixels (transparent
+    // or from adjacent sprites). Nudging by 0.5 px keeps samples strictly
+    // inside the sprite's own pixels.
+    const float texW = static_cast<float>(tex->width());
+    const float texH = static_cast<float>(tex->height());
+    m_uvRect[0] = (static_cast<float>(sprite->x)                + 0.5f) / texW;
+    m_uvRect[1] = (static_cast<float>(sprite->y)                + 0.5f) / texH;
+    m_uvRect[2] = (static_cast<float>(sprite->x + sprite->width)  - 0.5f) / texW;
+    m_uvRect[3] = (static_cast<float>(sprite->y + sprite->height) - 0.5f) / texH;
+
+    // ── 2. Descriptor set layout: one combined image+sampler for fragment ───
     VkDescriptorSetLayoutBinding binding{};
     binding.binding         = 0;
     binding.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -54,22 +82,19 @@ void GridRenderer::init(const VulkanContext& ctx, const RenderPass& renderPass,
 
     m_descriptorLayout = descriptors.createLayout(ctx, { binding });
 
-    // ── 2. Pipeline knows about this layout ──────────────────────────────────
+    // ── 3. Pipeline knows about this layout ─────────────────────────────────
     PipelineConfig cfg;
     cfg.vertShader       = ShaderID("grid_vert");
     cfg.fragShader       = ShaderID("grid_frag");
-    cfg.pushConstantSize = sizeof(float) * 8;          // vec2 offset + vec2 scale + vec4 color
+    cfg.pushConstantSize = sizeof(GridPushConstants);
     cfg.descriptorLayout = m_descriptorLayout;
     m_pipeline.init(ctx, renderPass, resources, cfg);
 
-    // ── 3. Allocate the descriptor set ───────────────────────────────────────
+    // ── 4. Allocate descriptor set ──────────────────────────────────────────
     m_descriptorSet = descriptors.allocate(ctx, m_descriptorLayout);
     FP_CORE_ASSERT(m_descriptorSet != VK_NULL_HANDLE, "Grid descriptor set allocation failed");
 
-    // ── 4. Write the texture into binding 0 ──────────────────────────────────
-    const Texture* tex = resources.getTexture(tileTexture);
-    FP_CORE_ASSERT(tex && tex->isValid(), "Tile texture '{}' not available", tileTexture.c_str());
-
+    // ── 5. Write texture into binding 0 ─────────────────────────────────────
     VkDescriptorImageInfo imageInfo{};
     imageInfo.sampler     = tex->sampler();
     imageInfo.imageView   = tex->view();
@@ -84,10 +109,12 @@ void GridRenderer::init(const VulkanContext& ctx, const RenderPass& renderPass,
     write.pImageInfo      = &imageInfo;
     vkUpdateDescriptorSets(ctx.device(), 1, &write, 0, nullptr);
 
-    // ── 5. Upload quad vertex data ───────────────────────────────────────────
+    // ── 6. Upload quad vertex data ──────────────────────────────────────────
     m_quadBuffer.upload(ctx, k_unitQuad.data(), sizeof(k_unitQuad));
 
-    FP_CORE_INFO("GridRenderer initialized (texture='{}')", tileTexture.c_str());
+    FP_CORE_INFO("GridRenderer initialized (sprite='{}', uv=[{:.3f},{:.3f} .. {:.3f},{:.3f}])",
+                 tileSprite.c_str(),
+                 m_uvRect[0], m_uvRect[1], m_uvRect[2], m_uvRect[3]);
 }
 
 void GridRenderer::shutdown(const VulkanContext& ctx) {
@@ -113,22 +140,15 @@ void GridRenderer::draw(VkCommandBuffer cmd, const Swapchain& swapchain,
 
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipeline.handle());
 
-    // Bind the descriptor set — must happen AFTER vkCmdBindPipeline.
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                             m_pipeline.layout(),
-                            0,                    // firstSet
+                            0,
                             1, &m_descriptorSet,
-                            0, nullptr);          // no dynamic offsets
+                            0, nullptr);
 
     VkDeviceSize offset = 0;
     VkBuffer vb = m_quadBuffer.handle();
     vkCmdBindVertexBuffers(cmd, 0, 1, &vb, &offset);
-
-    struct PushConstants {
-        float offsetX, offsetY;
-        float scaleX,  scaleY;
-        float r, g, b, a;
-    };
 
     for (int32_t row = 0; row < map.height(); ++row) {
         for (int32_t col = 0; col < map.width(); ++col) {
@@ -139,16 +159,20 @@ void GridRenderer::draw(VkCommandBuffer cmd, const Swapchain& swapchain,
 
             TileColor c = colorForType(tile.type);
 
-            PushConstants pc{};
+            GridPushConstants pc{};
             pc.offsetX = ndcX;
             pc.offsetY = ndcY;
             pc.scaleX  = cellW;
             pc.scaleY  = cellH;
             pc.r = c.r; pc.g = c.g; pc.b = c.b; pc.a = c.a;
+            pc.u0 = m_uvRect[0];
+            pc.v0 = m_uvRect[1];
+            pc.u1 = m_uvRect[2];
+            pc.v1 = m_uvRect[3];
 
             vkCmdPushConstants(cmd, m_pipeline.layout(),
                                VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-                               0, sizeof(PushConstants), &pc);
+                               0, sizeof(pc), &pc);
 
             vkCmdDraw(cmd, 6, 1, 0, 0);
         }

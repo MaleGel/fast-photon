@@ -54,22 +54,32 @@ cmake --build build
 
 1. Drop PNG files into `assets/textures/` (subdirectories become part of
    the sprite ID, e.g. `units/warrior.png` → sprite id `units/warrior`).
-2. Either:
-   - **Raw mode (fast iteration):** run `tools/asset_indexer/index.sh`.
-     Each PNG becomes its own texture + full-image sprite.
-   - **Baked mode (shipping):** run `tools/atlas_baker/bake.sh` to pack
-     all PNGs into atlas pages, then `tools/asset_indexer/index.sh` to
-     regenerate the `assets.json` entries to reference the atlas.
+2. Regenerate the `textures` and `sprites` sections of `assets.json`:
+   ```sh
+   tools/asset_indexer/index.sh
+   ```
+3. Run the game.
 
-The pre-commit hook verifies that `assets.json` is up-to-date with the
-asset folders; it will block a commit if the index is stale and tell you
-which command to run.
+The engine picks between two modes automatically at startup:
+
+- **raw** (default): reads `textures`/`sprites` from `assets.json`.
+  Every PNG on disk must have a matching sprite entry — the engine
+  asserts on any mismatch so stale manifests fail loudly.
+- **baked**: if `assets/atlases/atlas.json` exists, the engine loads
+  atlas pages and sprite UV rects from it directly. `assets.json`
+  entries for `textures`/`sprites` are ignored in this mode.
+
+For a shipping build, pack source PNGs into atlases:
+```sh
+tools/atlas_baker/bake.sh
+```
+Delete `assets/atlases/` to return to raw mode.
 
 ### Shaders and materials
 
 Edit `assets/shaders/*.vert`/`*.frag` (rebuild handles SPIR-V). Edit the
-`shaders` and `materials` sections of `assets/assets.json` by hand — the
-indexer leaves those sections untouched.
+`shaders` and `materials` sections of `assets/assets.json` by hand —
+the indexer only touches `textures`/`sprites`.
 
 ---
 

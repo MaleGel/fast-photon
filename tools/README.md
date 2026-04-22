@@ -49,31 +49,34 @@ tools/atlas_baker/bake.sh --max-pages 4      # lower safety ceiling
 - Rotation is disabled so UVs remain intuitive.
 - Output is sorted → rerunning with unchanged inputs produces byte-identical JSON.
 
-### asset_indexer — regenerate `assets.json` textures/sprites sections
+### asset_indexer — regenerate `textures`/`sprites` in `assets.json`
 
 Scans asset folders and regenerates the **textures** and **sprites**
 sections of `assets/assets.json`. The **shaders** and **materials**
-sections are human-authored and preserved verbatim.
+sections are hand-written and preserved verbatim.
+
+Required in raw mode: the engine asserts on startup if any PNG on disk
+lacks a matching sprite entry (or vice versa). Run this after adding,
+renaming, or removing PNGs in `assets/textures/`.
 
 Two modes, auto-detected:
 
 - **baked** — if `assets/atlases/atlas.json` exists: textures reference
-  atlas pages, sprites reference atlas rects.
+  atlas pages, sprites reference atlas rects. (The engine itself reads
+  `atlas.json` directly at runtime; the indexer updates `assets.json`
+  as a bookkeeping snapshot.)
 - **raw** — no atlas: every PNG in `assets/textures/` becomes its own
   texture plus a full-image sprite.
 
 **Run:**
 ```sh
-tools/asset_indexer/index.sh           # regenerate assets.json
-tools/asset_indexer/index.sh --check   # exit 1 if stale (full scan)
+tools/asset_indexer/index.sh           # regenerate textures/sprites
+tools/asset_indexer/index.sh --check   # exit 1 if stale (used by CI)
 ```
 
-The indexer is idempotent — calling it repeatedly with unchanged inputs
-leaves `assets.json` untouched on disk.
-
-A companion module, `check_staged.py`, provides a fast path used by the
-pre-commit hook: it verifies only staged asset changes (PNGs, atlas.json,
-assets.json) for internal consistency and skips the full disk scan.
+The indexer is idempotent. Its companion module, `check_staged.py`,
+powers the pre-commit hook: it verifies only staged asset changes
+(PNGs, atlas.json, assets.json) for internal consistency.
 
 ---
 

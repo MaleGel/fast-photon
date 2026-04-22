@@ -4,6 +4,7 @@
 #include "TextureCache.h"
 #include "MaterialRegistry.h"
 #include "SpriteRegistry.h"
+#include <nlohmann/json_fwd.hpp>
 #include <string>
 
 namespace engine {
@@ -34,6 +35,9 @@ public:
     const SpriteRegistry&   sprites()   const { return m_sprites;   }
 
 private:
+    void loadBakedAssets(const VulkanContext& ctx);
+    void loadRawAssets  (const VulkanContext& ctx, const nlohmann::json& doc);
+
     ShaderCache      m_shaders;
     TextureCache     m_textures;
     MaterialRegistry m_materials;

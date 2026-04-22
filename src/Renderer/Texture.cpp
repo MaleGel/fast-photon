@@ -193,14 +193,17 @@ bool Texture::loadFromFile(const VulkanContext& ctx, const std::string& path) {
     viewCI.subresourceRange.layerCount     = 1;
     vkCreateImageView(ctx.device(), &viewCI, nullptr, &m_view);
 
-    // ── Default sampler (linear filter, repeat wrap) ──────────────────────────
+    // ── Default sampler (linear filter, clamp-to-edge wrap) ───────────────────
+    // CLAMP_TO_EDGE is the right default for atlased sprites: addressing
+    // outside the sub-rect returns the edge pixel rather than the next
+    // sprite / wrapped region, avoiding bleeding at neighbor boundaries.
     VkSamplerCreateInfo samplerCI{};
     samplerCI.sType        = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
     samplerCI.magFilter    = VK_FILTER_LINEAR;
     samplerCI.minFilter    = VK_FILTER_LINEAR;
-    samplerCI.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-    samplerCI.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-    samplerCI.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    samplerCI.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    samplerCI.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    samplerCI.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
     samplerCI.anisotropyEnable = VK_FALSE;
     samplerCI.borderColor      = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
     samplerCI.unnormalizedCoordinates = VK_FALSE;

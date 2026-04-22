@@ -142,7 +142,7 @@ int main(int argc, char* argv[]) {
     // GridRenderer
     engine::GridRenderer gridRenderer;
     gridRenderer.init(vkCtx, renderPass, resources, descriptors, map,
-                      engine::TextureID("tile"));
+                      engine::SpriteID("tile"));
 
     // Command pool + buffer
     VkCommandPool   cmdPool   = createCommandPool(vkCtx.device(), vkCtx.graphicsFamily());

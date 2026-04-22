@@ -2,16 +2,17 @@
 
 // Per-vertex input
 layout(location = 0) in vec2 inPosition;
-layout(location = 1) in vec2 inUV;
+layout(location = 1) in vec2 inUV;   // quad-local UV in [0,1]
 
 // Passed to fragment shader
 layout(location = 0) out vec2 fragUV;
 
-// Push constant: tile transform + tint color (color used by fragment stage)
+// Push constants — shared with grid.frag. Layout must match GridPushConstants in C++.
 layout(push_constant) uniform PushConstants {
-    vec2 offset;  // tile center in NDC (-1..1)
+    vec2 offset;  // tile center in NDC
     vec2 scale;   // tile size in NDC
-    vec4 color;   // tile tint color (RGBA), read by fragment shader
+    vec4 color;   // tint (fragment stage)
+    vec4 uvRect;  // (u0, v0, u1, v1) sub-rect inside the bound texture (fragment stage)
 } pc;
 
 void main() {

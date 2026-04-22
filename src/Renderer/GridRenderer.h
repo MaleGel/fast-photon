@@ -17,7 +17,7 @@ class GridRenderer {
 public:
     void init(const VulkanContext& ctx, const RenderPass& renderPass,
               const ResourceManager& resources, DescriptorAllocator& descriptors,
-              const GridMap& map, TextureID tileTexture);
+              const GridMap& map, SpriteID tileSprite);
     void shutdown(const VulkanContext& ctx);
 
     // Record draw commands into an active command buffer
@@ -28,6 +28,7 @@ private:
     VertexBuffer          m_quadBuffer;
     VkDescriptorSetLayout m_descriptorLayout = VK_NULL_HANDLE; // owned by DescriptorAllocator
     VkDescriptorSet       m_descriptorSet    = VK_NULL_HANDLE; // owned by DescriptorAllocator
+    float                 m_uvRect[4]{ 0.f, 0.f, 1.f, 1.f };   // (u0, v0, u1, v1)
 };
 
 } // namespace engine
