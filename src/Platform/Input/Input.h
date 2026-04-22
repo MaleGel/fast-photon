@@ -7,6 +7,8 @@ union SDL_Event;
 
 namespace engine {
 
+class EventBus;
+
 // SDL type aliases — avoids SDL_ prefix leaking into game code
 using KeyCode   = SDL_Keycode;
 using MouseBtn  = uint8_t;
@@ -17,21 +19,19 @@ namespace Mouse {
     inline constexpr MouseBtn Right  = 3;  // SDL_BUTTON_RIGHT
 }
 
+// Hybrid Input: edge transitions (press/release) are published as events;
+// continuous state (is-held / absolute position) stays pollable.
+// Subscribers:   KeyPressedEvent, MouseMovedEvent, etc — see InputEvents.h
+// Polling API:   isKeyDown(), getMouseX(), etc
 class Input {
 public:
-    // Call once per frame before SDL_PollEvent
     static void beginFrame();
 
-    // Pass every SDL_Event from the poll loop
-    static void processEvent(const SDL_Event& event);
+    // Forward one SDL event. Publishes the appropriate input event on 'bus'.
+    static void processEvent(const SDL_Event& event, EventBus& bus);
 
-    static bool isKeyDown(KeyCode key);      // held this frame
-    static bool isKeyPressed(KeyCode key);   // first frame down
-    static bool isKeyReleased(KeyCode key);  // first frame up
-
+    static bool isKeyDown(KeyCode key);
     static bool isMouseDown(MouseBtn btn);
-    static bool isMousePressed(MouseBtn btn);
-    static bool isMouseReleased(MouseBtn btn);
 
     static int32_t getMouseX();
     static int32_t getMouseY();
@@ -41,20 +41,16 @@ public:
 private:
     // index = SDL_Scancode, value = 1/0
     static const uint8_t* s_keysCurrent;
-    static uint8_t        s_keysPrev[512];
 
     static uint32_t s_mouseCurrent;
-    static uint32_t s_mousePrev;
     static int32_t  s_mouseX,  s_mouseY;
     static int32_t  s_mousePrevX, s_mousePrevY;
 };
 
 } // namespace engine
 
-#define FP_KEY_DOWN(key)      engine::Input::isKeyDown(key)
-#define FP_KEY_PRESSED(key)   engine::Input::isKeyPressed(key)
-#define FP_KEY_RELEASED(key)  engine::Input::isKeyReleased(key)
-#define FP_MOUSE_DOWN(btn)    engine::Input::isMouseDown(btn)
-#define FP_MOUSE_PRESSED(btn) engine::Input::isMousePressed(btn)
-#define FP_MOUSE_X()          engine::Input::getMouseX()
-#define FP_MOUSE_Y()          engine::Input::getMouseY()
+// Polling helpers — edge-triggered checks now come from InputEvents.
+#define FP_KEY_DOWN(key)    engine::Input::isKeyDown(key)
+#define FP_MOUSE_DOWN(btn)  engine::Input::isMouseDown(btn)
+#define FP_MOUSE_X()        engine::Input::getMouseX()
+#define FP_MOUSE_Y()        engine::Input::getMouseY()

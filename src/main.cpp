@@ -12,8 +12,12 @@
 #include "Core/Log/Log.h"
 #include "Core/StringAtom/StringAtom.h"
 #include "Core/Time/Time.h"
+#include "Core/Events/EventBus.h"
+#include "App/AppController.h"
 #include "Platform/Window/Window.h"
+#include "Platform/Window/WindowEvents.h"
 #include "Platform/Input/Input.h"
+#include "Platform/Input/InputEvents.h"
 #include "Renderer/VulkanContext.h"
 #include "Renderer/Swapchain.h"
 #include "Renderer/RenderPass.h"
@@ -28,6 +32,7 @@
 #include "ECS/Systems/RenderSystem.h"
 #include "Gameplay/GridMap/GridMap.h"
 #include "Gameplay/TurnManager/TurnManager.h"
+#include "Gameplay/TurnManager/TurnEvents.h"
 
 // ── ECS setup ────────────────────────────────────────────────────
 static void setupECS(entt::registry& registry, engine::GridMap& map) {
@@ -112,6 +117,10 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
+    engine::EventBus      eventBus;
+    engine::AppController appController;
+    appController.init(eventBus);
+
     engine::Window        window({ "fast-photon", 1280, 720 });
     engine::VulkanContext vkCtx;
     engine::Swapchain     swapchain;
@@ -188,7 +197,14 @@ int main(int argc, char* argv[]) {
 
     // TurnManager
     engine::TurnManager turnManager;
-    turnManager.init({ engine::Faction::Player, engine::Faction::Enemy });
+    turnManager.init(eventBus, { engine::Faction::Player, engine::Faction::Enemy });
+
+    // Translate Enter key into an end-turn request. Staying local in main
+    // keeps the binding trivially visible; any system could do the same.
+    auto endTurnSub = eventBus.subscribe<engine::KeyPressedEvent>(
+        [&turnManager](const engine::KeyPressedEvent& e) {
+            if (e.key == SDLK_RETURN) turnManager.endTurn();
+        });
 
     // Systems
     engine::RenderSystem renderSystem;
@@ -196,24 +212,21 @@ int main(int argc, char* argv[]) {
 
     // ── Main loop ─────────────────────────────────────────────────
     float     clearColor[3] = { 0.1f, 0.1f, 0.18f };
-    bool      running       = true;
     SDL_Event event;
 
     engine::Time::init();
     FP_CORE_INFO("Entering main loop");
 
-    while (running) {
+    while (!appController.shouldQuit()) {
         engine::Input::beginFrame();
         engine::Time::tick();
 
         while (SDL_PollEvent(&event)) {
             ImGui_ImplSDL2_ProcessEvent(&event);
-            engine::Input::processEvent(event);
-            if (event.type == SDL_QUIT) running = false;
+            engine::Input::processEvent(event, eventBus);
+            if (event.type == SDL_QUIT)
+                eventBus.publish(engine::AppQuitRequestedEvent{});
         }
-
-        if (FP_KEY_PRESSED(SDLK_ESCAPE)) running = false;
-        if (FP_KEY_PRESSED(SDLK_RETURN)) turnManager.endTurn();
 
         // ImGui frame
         ImGui_ImplVulkan_NewFrame();
@@ -303,6 +316,10 @@ int main(int argc, char* argv[]) {
     vkDestroySemaphore(vkCtx.device(), renderFinished, nullptr);
     vkDestroySemaphore(vkCtx.device(), imageAvailable, nullptr);
     vkDestroyCommandPool(vkCtx.device(), cmdPool, nullptr);
+
+    // Release subscriptions before the bus goes out of scope.
+    endTurnSub.release();
+    appController.shutdown();
 
     gridRenderer.shutdown(vkCtx);
     descriptors.shutdown(vkCtx);

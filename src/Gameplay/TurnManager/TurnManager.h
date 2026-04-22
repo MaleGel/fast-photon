@@ -5,10 +5,14 @@
 
 namespace engine {
 
+class EventBus;
+
 class TurnManager {
 public:
-    // factionOrder defines the turn sequence, e.g. {Player, Enemy}
-    void init(std::vector<Faction> factionOrder, uint8_t actionsPerTurn = 2);
+    // factionOrder defines the turn sequence, e.g. {Player, Enemy}.
+    // EventBus is stored by pointer; TurnManager publishes TurnStarted/
+    // TurnEnded/ActionSpent events on state transitions.
+    void init(EventBus& bus, std::vector<Faction> factionOrder, uint8_t actionsPerTurn = 2);
 
     // Called by game when player/AI finishes their turn
     void endTurn();
@@ -25,6 +29,7 @@ public:
     bool isFactionActive(Faction f) const { return currentFaction() == f; }
 
 private:
+    EventBus*            m_bus = nullptr;
     std::vector<Faction> m_factionOrder;
     uint8_t  m_actionsPerTurn = 2;
     uint8_t  m_actionsLeft    = 0;

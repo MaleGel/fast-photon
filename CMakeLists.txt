@@ -56,6 +56,8 @@ set(ENGINE_SOURCES
     src/Core/Log/Log.cpp
     src/Core/Time/Time.cpp
     src/Core/StringAtom/StringAtom.cpp
+    src/Core/Events/EventBus.cpp
+    src/App/AppController.cpp
     src/Platform/Window/Window.cpp
     src/Platform/Input/Input.cpp
     src/Renderer/VulkanContext.cpp
