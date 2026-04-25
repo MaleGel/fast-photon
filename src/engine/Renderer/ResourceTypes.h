@@ -24,5 +24,9 @@ using StateID        = StringAtom;
 // "stop", "land"). Game code fires triggers; the state machine resolves
 // them against the current state's transition table.
 using TriggerID      = StringAtom;
+// VFX system asset (one entry under "particle_systems" in a faction
+// manifest). Resolves to an immutable ParticleSystem definition + a
+// per-system GPU pool.
+using ParticleSystemID = StringAtom;
 
 } // namespace engine

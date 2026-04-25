@@ -1,0 +1,75 @@
+#version 450
+
+// VFX spawn compute pass.
+//
+// One workgroup invocation per pending spawn request. Each invocation
+// claims a slot in the particle pool via an atomic counter (ring buffer
+// — slot index modulo capacity), then writes the new particle there.
+//
+// The spawn buffer is filled by the CPU each frame and capped by the
+// caller; we only iterate as many invocations as it dispatched.
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+struct Particle {
+    vec2 position;
+    vec2 velocity;
+    vec4 colorStart;
+    vec4 colorEnd;
+    float lifetime;
+    float timeAlive;
+    float sizeStart;
+    float sizeEnd;
+    vec2 gravity;
+    uint alive;
+    uint _pad0;
+};
+
+struct SpawnRequest {
+    vec2 position;
+    vec2 velocity;
+    vec4 colorStart;
+    vec4 colorEnd;
+    float lifetime;
+    float sizeStart;
+    float sizeEnd;
+    uint _pad0;
+    vec2 gravity;
+    vec2 _pad1;
+};
+
+layout(set = 0, binding = 0, std430) buffer Pool       { Particle    p[]; } pool;
+layout(set = 0, binding = 1, std430) buffer Spawns     { SpawnRequest s[]; } spawns;
+layout(set = 0, binding = 2, std430) buffer Counter    { uint        head; uint _pad[3]; } counter;
+
+layout(push_constant) uniform PC {
+    uint capacity;       // pool size
+    uint spawnCount;     // valid entries in spawns[]
+} pc;
+
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    if (i >= pc.spawnCount) return;
+
+    // Ring-buffer allocation: atomicAdd returns the previous value, so
+    // independent invocations get unique indices. Modulo wraps around the
+    // pool, overwriting the oldest live particle when the pool is full —
+    // an acceptable failure mode for VFX (rather than dropping new spawns).
+    uint slot = atomicAdd(counter.head, 1u) % pc.capacity;
+
+    SpawnRequest r = spawns.s[i];
+
+    Particle p;
+    p.position   = r.position;
+    p.velocity   = r.velocity;
+    p.colorStart = r.colorStart;
+    p.colorEnd   = r.colorEnd;
+    p.lifetime   = r.lifetime;
+    p.timeAlive  = 0.0;
+    p.sizeStart  = r.sizeStart;
+    p.sizeEnd    = r.sizeEnd;
+    p.gravity    = r.gravity;
+    p.alive      = 1u;
+    p._pad0      = 0u;
+    pool.p[slot] = p;
+}

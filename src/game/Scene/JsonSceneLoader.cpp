@@ -9,6 +9,8 @@
 #include "Scene/Components/TransformComponent.h"
 #include "Scene/Components/SpriteComponent.h"
 #include "Scene/Components/AnimationComponent.h"
+#include "Scene/Components/ScriptComponent.h"
+#include "Scene/Components/ParticleEmitterComponent.h"
 #include "Scene/Components/Camera/CameraComponent2D.h"
 #include "Scene/Components/Camera/ActiveCameraTag.h"
 #include "Scene/Components/Camera/CameraConfig.h"
@@ -150,6 +152,21 @@ static void emplaceSprite(entt::registry& r, entt::entity e, const json& v) {
     r.emplace_or_replace<SpriteComponent>(e, sc);
 }
 
+static void emplaceScript(entt::registry& r, entt::entity e, const json& v) {
+    // 'Script' may be a bare string (path) or an object with a 'path' field;
+    // accept both so future fields (e.g. per-instance args) can slot in
+    // without breaking existing prefabs.
+    ScriptComponent sc;
+    if (v.is_string()) {
+        sc.path = v.get<std::string>();
+    } else if (v.is_object() && v.contains("path")) {
+        sc.path = v.at("path").get<std::string>();
+    } else {
+        FP_CORE_ASSERT(false, "Script component must be a string or object with 'path'");
+    }
+    r.emplace_or_replace<ScriptComponent>(e, std::move(sc));
+}
+
 static void emplaceAnimation(entt::registry& r, entt::entity e, const json& v) {
     AnimationComponent ac;
     ac.set = AnimationSetID(v.at("set").get<std::string>().c_str());
@@ -162,15 +179,33 @@ static void emplaceAnimation(entt::registry& r, entt::entity e, const json& v) {
     r.emplace_or_replace<AnimationComponent>(e, ac);
 }
 
+static void emplaceParticleEmitter(entt::registry& r, entt::entity e, const json& v) {
+    // 'ParticleEmitter' is either a bare string (system id) or an object
+    // with a 'system' field plus optional 'active'.
+    ParticleEmitterComponent pe;
+    if (v.is_string()) {
+        pe.system = ParticleSystemID(v.get<std::string>().c_str());
+    } else if (v.is_object() && v.contains("system")) {
+        pe.system = ParticleSystemID(v.at("system").get<std::string>().c_str());
+        pe.active = v.value("active", true);
+    } else {
+        FP_CORE_ASSERT(false,
+            "ParticleEmitter component must be a string or object with 'system'");
+    }
+    r.emplace_or_replace<ParticleEmitterComponent>(e, std::move(pe));
+}
+
 static void emplaceComponent(entt::registry& r, entt::entity e,
                              const std::string& key, const json& v) {
-    if      (key == "Tag")       emplaceTag      (r, e, v);
-    else if (key == "Transform") emplaceTransform(r, e, v);
-    else if (key == "Grid")      emplaceGrid     (r, e, v);
-    else if (key == "Render")    emplaceRender   (r, e, v);
-    else if (key == "Faction")   emplaceFaction  (r, e, v);
-    else if (key == "Sprite")    emplaceSprite   (r, e, v);
-    else if (key == "Animation") emplaceAnimation(r, e, v);
+    if      (key == "Tag")             emplaceTag             (r, e, v);
+    else if (key == "Transform")       emplaceTransform       (r, e, v);
+    else if (key == "Grid")            emplaceGrid            (r, e, v);
+    else if (key == "Render")          emplaceRender          (r, e, v);
+    else if (key == "Faction")         emplaceFaction         (r, e, v);
+    else if (key == "Sprite")          emplaceSprite          (r, e, v);
+    else if (key == "Animation")       emplaceAnimation       (r, e, v);
+    else if (key == "Script")          emplaceScript          (r, e, v);
+    else if (key == "ParticleEmitter") emplaceParticleEmitter (r, e, v);
     else {
         FP_CORE_ASSERT(false, "Unknown component '{}' in scene JSON", key);
     }

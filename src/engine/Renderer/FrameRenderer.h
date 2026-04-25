@@ -30,7 +30,12 @@ class EventBus;
 //      the next time this slot is reused, beginFrame() blocks on that fence.
 class FrameRenderer {
 public:
-    static constexpr uint32_t kMaxFramesInFlight = 2;
+    // 1 keeps input → display latency at the minimum (one vsync). 2 lets
+    // the CPU build frame N+1 while the GPU is still on N — useful when
+    // the CPU is the bottleneck, but on this scene the CPU finishes far
+    // under the vsync window, so the extra slot only buys input lag.
+    // Bump back to 2 if profiler ever shows CPU-bound frames.
+    static constexpr uint32_t kMaxFramesInFlight = 1;
 
     using RecordFn = std::function<void(VkCommandBuffer)>;
 
@@ -44,17 +49,22 @@ public:
 
     // Record + submit + present. beginFrame() must have returned true.
     //
-    // Three caller-supplied phases:
-    //   recordScene   — dispatched inside the MSAA HDR render pass
-    //   recordCompute — outside any render pass; brightImage is in GENERAL
-    //                   layout, scene HDR has finalLayout SHADER_READ_ONLY
-    //   recordSwap    — inside the 1× swapchain render pass
+    // Four caller-supplied phases:
+    //   recordPreCompute  — outside any render pass, *before* the scene
+    //                       pass. For compute that produces buffers
+    //                       consumed by scene rendering (VFX simulate).
+    //   recordScene       — inside the MSAA HDR render pass.
+    //   recordPostCompute — outside any render pass, *between* scene and
+    //                       swap. brightImage is in GENERAL layout for
+    //                       the duration; scene HDR is SHADER_READ_ONLY.
+    //   recordSwap        — inside the 1× swapchain render pass.
     void render(VulkanContext& ctx, Swapchain& swapchain,
                 RenderPass& sceneRenderPass, SwapchainRenderPass& swapRenderPass,
                 BrightImage& brightImage,
                 const std::array<float, 4>& clearColor,
+                const RecordFn& recordPreCompute,
                 const RecordFn& recordScene,
-                const RecordFn& recordCompute,
+                const RecordFn& recordPostCompute,
                 const RecordFn& recordSwap);
 
 private:

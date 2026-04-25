@@ -1,8 +1,10 @@
 {
     "components": {
-        "Tag":     "Warrior",
-        "Faction": "Player",
-        "Render":  { "color":  [0.2, 0.6, 1.0, 1.0] },
-        "Sprite":  { "id": "player/warrior", "size": [1.0, 1.0] }
+        "Tag":             "Warrior",
+        "Faction":         "Player",
+        "Render":          { "color":  [0.2, 0.6, 1.0, 1.0] },
+        "Sprite":          { "id": "player/warrior", "size": [1.0, 1.0] },
+        "Script":          "assets/data/factions/player/units/warrior.lua",
+        "ParticleEmitter": "player/spark"
     }
 }

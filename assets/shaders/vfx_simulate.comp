@@ -1,0 +1,51 @@
+#version 450
+
+// VFX simulate compute pass.
+//
+// One invocation per particle in the pool. Advances time, position and
+// velocity (Euler integration with constant gravity). When timeAlive
+// reaches lifetime the particle is marked dead — the render pass
+// collapses dead particles to a degenerate quad rather than us
+// compacting the pool.
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+struct Particle {
+    vec2 position;
+    vec2 velocity;
+    vec4 colorStart;
+    vec4 colorEnd;
+    float lifetime;
+    float timeAlive;
+    float sizeStart;
+    float sizeEnd;
+    vec2 gravity;
+    uint alive;
+    uint _pad0;
+};
+
+layout(set = 0, binding = 0, std430) buffer Pool { Particle p[]; } pool;
+
+layout(push_constant) uniform PC {
+    float dt;
+    uint  capacity;
+} pc;
+
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    if (i >= pc.capacity) return;
+
+    Particle p = pool.p[i];
+    if (p.alive == 0u) return;
+
+    p.timeAlive += pc.dt;
+    if (p.timeAlive >= p.lifetime) {
+        p.alive = 0u;
+        pool.p[i] = p;
+        return;
+    }
+
+    p.velocity += p.gravity * pc.dt;
+    p.position += p.velocity * pc.dt;
+    pool.p[i] = p;
+}

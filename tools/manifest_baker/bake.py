@@ -49,7 +49,7 @@ from typing import Any, Iterable
 # diffs in the baked file.
 MERGED_SECTIONS = (
     "shaders", "fonts", "textures", "sprites", "materials",
-    "sounds", "animations", "animation_sets",
+    "sounds", "animations", "animation_sets", "particle_systems",
 )
 
 
@@ -110,6 +110,9 @@ def _rewrite_faction_section(section: str, entries: list[dict],
                 e["default"] = _qualify(e["default"], faction)
             # Layout dict is keyed by *unqualified* state names — leave keys
             # alone (engine ignores _layout).
+        elif section == "particle_systems":
+            if "sprite" in e:
+                e["sprite"] = _qualify(e["sprite"], faction)
         # Other sections (shaders, fonts, sounds, textures) need only the
         # 'name' field rewritten, which we already did above.
         out.append(e)
@@ -237,6 +240,15 @@ def _validate(doc: dict[str, Any]) -> list[str]:
                         f"transition '{tr.get('trigger', '?')}' "
                         f"target '{target}' is not a state in this set"
                     )
+
+    # particle_systems → sprites (sprite ref must resolve)
+    for ps in doc.get("particle_systems", []) or []:
+        psname = ps.get("name", "?")
+        sref = ps.get("sprite")
+        if sref and sref not in sprites:
+            errors.append(
+                f"particle_system '{psname}' references unknown sprite '{sref}'"
+            )
 
     return errors
 

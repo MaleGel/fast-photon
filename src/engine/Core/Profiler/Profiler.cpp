@@ -18,6 +18,7 @@ double                          Profiler::s_lastFrameMs     = 0.0;
 double                          Profiler::s_smoothedFrameMs = 0.0;
 Profiler::ScopeWindow           Profiler::s_frameWindow{};
 Profiler::TimePt                Profiler::s_frameStart  = {};
+std::thread::id                 Profiler::s_mainThreadId{};
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -39,6 +40,13 @@ static double pushWindow(W& w, double ms) {
 // ── Frame lifecycle ──────────────────────────────────────────────────────────
 
 void Profiler::beginFrame() {
+    // First call locks in which thread is "main". Anything else is
+    // treated as a worker and silently ignored by push/popScope so the
+    // scope stack stays single-threaded.
+    if (s_mainThreadId == std::thread::id{}) {
+        s_mainThreadId = std::this_thread::get_id();
+    }
+
     FP_CORE_ASSERT(s_stack.empty(),
                    "Profiler: {} scope(s) still open across frame boundary — missing FP_PROFILE_SCOPE close",
                    s_stack.size());
@@ -79,6 +87,15 @@ void Profiler::endFrame() {
 // ── Scope push/pop ───────────────────────────────────────────────────────────
 
 void Profiler::pushScope(const char* name) {
+    // Worker threads call FP_PROFILE_SCOPE too (e.g. inside parallel_for
+    // bodies). The scope state is single-threaded so we can't safely
+    // record their work — silently no-op instead. Per-thread profiling
+    // is a future improvement.
+    if (s_mainThreadId != std::thread::id{}
+        && std::this_thread::get_id() != s_mainThreadId) {
+        return;
+    }
+
     // Reserve a slot in the output list with a placeholder duration; popScope
     // will fill it in. This keeps samples in begin order, matching call flow.
     Sample placeholder{};
@@ -98,6 +115,10 @@ void Profiler::pushScope(const char* name) {
 }
 
 void Profiler::popScope() {
+    if (s_mainThreadId != std::thread::id{}
+        && std::this_thread::get_id() != s_mainThreadId) {
+        return;
+    }
     FP_CORE_ASSERT(!s_stack.empty(), "Profiler: popScope with empty stack");
 
     const Pending p   = s_stack.back();

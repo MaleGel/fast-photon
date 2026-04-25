@@ -12,6 +12,7 @@
 #include "Core/Profiler/ProfilerWindow.h"
 #include "Core/Profiler/GpuProfiler.h"
 #include "Core/Profiler/GpuProfilerWindow.h"
+#include "Core/Job/JobSystem.h"
 #include "App/AppController.h"
 #include "App/GameLoop.h"
 #include "Platform/SdlContext.h"
@@ -40,6 +41,8 @@
 #include "Renderer/DebugDraw.h"
 #include "Systems/SelectionSystem.h"
 #include "Animation/AnimationSystem.h"
+#include "Script/ScriptSystem.h"
+#include "Vfx/VfxSystem.h"
 #include "Renderer/RenderQueue.h"
 #include "Renderer/FrameRenderer.h"
 #include "Renderer/RendererEvents.h"
@@ -55,6 +58,11 @@ int main(int argc, char* argv[]) {
     engine::Log::init();
     (void)argc; (void)argv;
     FP_CORE_INFO("=== fast-photon starting ===");
+
+    // JobSystem brings up its worker pool; everything below this line may
+    // submit() / parallel_for() freely. The pool is sized from
+    // hardware_concurrency at default.
+    engine::JobSystem::init();
 
     engine::SdlContext    sdl;
     engine::EventBus      eventBus;
@@ -128,6 +136,13 @@ int main(int argc, char* argv[]) {
     engine::BrightExtractPass brightExtract;
     brightExtract.init(vkCtx, resources, descriptors, hdrTarget, brightImage, eventBus);
 
+    // VFX particle system. Owns per-system GPU pools, simulate compute,
+    // and instanced render. Drawn into the scene render pass at the
+    // Effects layer. spawnOnce can be called from gameplay code or
+    // Lua bindings (added in a later step).
+    engine::VfxSystem vfxSystem;
+    vfxSystem.init(vkCtx, sceneRenderPass, resources, descriptors, eventBus);
+
     // ── Hot-reload: watch every shader source tracked by the ShaderCache.
     // When a .vert/.frag changes on disk, re-run glslc and republish the
     // renderer-side reload handlers (which rebuild their pipelines).
@@ -170,6 +185,14 @@ int main(int argc, char* argv[]) {
 
     // Sprite material sets are now resolved lazily on first submit — no
     // registration step required here.
+
+    // Lua scripting. Uses its own FileWatcher so .lua hot-reloads run on
+    // the same cadence as shader edits (250 ms) without coupling the two
+    // subsystems' ownership.
+    engine::FileWatcher scriptWatcher(250);
+    engine::ScriptSystem scriptSystem;
+    scriptSystem.init(world.registry(), eventBus, scriptWatcher,
+                      audio, resources, vfxSystem);
 
     // Hover/select a tile with the mouse. Needs the grid from the loaded
     // scene so we can clamp coords, and DebugDraw for the highlights.
@@ -247,6 +270,7 @@ int main(int argc, char* argv[]) {
         engine::Input::beginFrame();
 
         shaderWatcher.poll();
+        scriptWatcher.poll();
 
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
@@ -320,6 +344,11 @@ int main(int argc, char* argv[]) {
 
         world.update(realDt);
         engine::AnimationSystem::update(world.registry(), resources, realDt);
+        scriptSystem.update(world.registry(), realDt);
+        // CPU-side emitter tick: walks ParticleEmitterComponent entities
+        // and pushes spawn requests into per-system queues that the GPU
+        // compute pass later consumes.
+        vfxSystem.tickEmitters(world.registry(), realDt);
         selectionSystem.update(world.registry(), realDt);
 
         engine::ProfilerWindow::draw();
@@ -348,6 +377,7 @@ int main(int argc, char* argv[]) {
         gridRenderer.submit(sceneQueue, swapchain, world.grid(), world.registry());
         spriteRenderer.submit(sceneQueue, vkCtx, descriptors, swapchain,
                               resources, world.registry());
+        vfxSystem.submit(sceneQueue, swapchain, world.registry());
         debugDraw.submit(sceneQueue, swapchain, world.registry());
 
         textRenderer.beginFrame(swapchain);
@@ -359,12 +389,19 @@ int main(int argc, char* argv[]) {
         postProcess.submit(swapQueue, swapchain);
         imgui.submit(swapQueue);
 
-        // Phase 2 — FrameRenderer records all three phases and submits.
-        // The compute phase sits between the scene and swap render passes
-        // and runs outside any render pass; FrameRenderer does the layout
-        // transitions on brightImage around our recordCompute callback.
+        // Phase 2 — FrameRenderer records all four phases and submits.
+        // recordPreCompute runs before the scene pass (VFX particle
+        // simulate writes the pool the scene pass then reads). The
+        // post-compute phase is sandwiched between scene and swap so
+        // the bright-extract pass can sample the just-resolved HDR.
         frameRenderer.render(vkCtx, swapchain, sceneRenderPass, swapRenderPass,
             brightImage, clearColor,
+            [&](VkCommandBuffer cmd) {
+                // Time::deltaTime is the same value Update sees this
+                // frame — keep the simulate step in sync with whatever
+                // the gameplay tick used.
+                vfxSystem.recordCompute(cmd, engine::Time::deltaTime());
+            },
             [&](VkCommandBuffer cmd) { sceneQueue.flush(cmd); },
             [&](VkCommandBuffer cmd) { brightExtract.record(cmd); },
             [&](VkCommandBuffer cmd) { swapQueue.flush(cmd); });
@@ -391,10 +428,12 @@ int main(int argc, char* argv[]) {
     engine::GpuProfiler::shutdown(vkCtx);
     frameRenderer.shutdown(vkCtx);
     selectionSystem.shutdown(world.registry());
+    scriptSystem.shutdown();
     world.shutdown();
     appController.shutdown();
     inputMap.shutdown();
 
+    vfxSystem.shutdown(vkCtx);
     brightExtract.shutdown(vkCtx);
     postProcess.shutdown(vkCtx);
     debugDraw.shutdown(vkCtx);
@@ -410,6 +449,9 @@ int main(int argc, char* argv[]) {
     hdrTarget.shutdown(vkCtx);
     swapchain.shutdown(vkCtx);
     vkCtx.shutdown();
+
+    // JobSystem last — by this point no more jobs may be submitted.
+    engine::JobSystem::shutdown();
 
     FP_CORE_INFO("Engine shutdown cleanly");
     engine::Log::shutdown();

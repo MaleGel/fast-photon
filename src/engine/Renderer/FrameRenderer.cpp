@@ -98,8 +98,9 @@ void FrameRenderer::render(VulkanContext& ctx, Swapchain& swapchain,
                            SwapchainRenderPass& swapRenderPass,
                            BrightImage& brightImage,
                            const std::array<float, 4>& clearColor,
+                           const RecordFn& recordPreCompute,
                            const RecordFn& recordScene,
-                           const RecordFn& recordCompute,
+                           const RecordFn& recordPostCompute,
                            const RecordFn& recordSwap) {
     FP_PROFILE_SCOPE("FrameRenderer::render");
     FP_CORE_ASSERT(m_frameActive, "FrameRenderer::render called without a successful beginFrame");
@@ -113,6 +114,13 @@ void FrameRenderer::render(VulkanContext& ctx, Swapchain& swapchain,
     // Kick off GPU profiling for this frame — query pool reset is recorded
     // into the command buffer, so this must come after vkBeginCommandBuffer.
     GpuProfiler::beginFrame(slot.cmdBuffer, m_currentSlot);
+
+    // ── Pre-scene compute ───────────────────────────────────────
+    // Compute work whose output the scene pass *reads* (e.g. VFX
+    // particle simulate writing a pool that the vertex shader pulls
+    // from). The callee is responsible for emitting any compute → scene
+    // memory barriers it needs.
+    if (recordPreCompute) recordPreCompute(slot.cmdBuffer);
 
     // ── Scene pass ───────────────────────────────────────────────
     {
@@ -161,7 +169,7 @@ void FrameRenderer::render(VulkanContext& ctx, Swapchain& swapchain,
             VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
             0, 0, nullptr, 0, nullptr, 1, &toGeneral);
 
-        if (recordCompute) recordCompute(slot.cmdBuffer);
+        if (recordPostCompute) recordPostCompute(slot.cmdBuffer);
 
         // GENERAL → SHADER_READ_ONLY_OPTIMAL so post.frag can sample it.
         VkImageMemoryBarrier toRead{};

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(FastPhotone CXX)
+project(FastPhotone CXX C)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -55,6 +55,26 @@ target_include_directories(nlohmann_json INTERFACE lib/json/include)
 add_library(miniaudio INTERFACE)
 target_include_directories(miniaudio INTERFACE lib/miniaudio)
 
+# Lua 5.4 — vendored source. We compile every .c in lib/lua/ as one static
+# library; the standalone 'lua' / 'luac' interpreter mains were stripped
+# before vendoring so there's no main() conflict.
+file(GLOB LUA_SOURCES CONFIGURE_DEPENDS lib/lua/*.c)
+add_library(lua STATIC ${LUA_SOURCES})
+target_include_directories(lua PUBLIC lib/lua)
+# Lua leans on a couple of POSIX-isms (popen, dlfcn). Disable that path on
+# MSVC so the build doesn't pull in os.execute / package.loadlib backends
+# we don't want anyway.
+if(MSVC)
+    target_compile_definitions(lua PUBLIC LUA_USE_C89)
+endif()
+
+# sol3 — single-header C++ wrapper around the Lua C API.
+# Include root is 'lib/' so '#include <sol/sol.hpp>' resolves to the file
+# at lib/sol/sol.hpp.
+add_library(sol2 INTERFACE)
+target_include_directories(sol2 INTERFACE lib)
+target_link_libraries(sol2 INTERFACE lua)
+
 # Engine source files — generic, game-agnostic.
 set(ENGINE_SOURCES
     src/engine/Core/Log/Log.cpp
@@ -66,6 +86,7 @@ set(ENGINE_SOURCES
     src/engine/Core/Profiler/ProfilerWindow.cpp
     src/engine/Core/Profiler/GpuProfiler.cpp
     src/engine/Core/Profiler/GpuProfilerWindow.cpp
+    src/engine/Core/Job/JobSystem.cpp
     src/engine/App/AppController.cpp
     src/engine/App/GameLoop.cpp
     src/engine/Platform/SdlContext.cpp
@@ -110,6 +131,9 @@ set(ENGINE_SOURCES
     src/engine/Scene/PrefabRegistry.cpp
     src/engine/Animation/AnimationRegistry.cpp
     src/engine/Animation/AnimationSystem.cpp
+    src/engine/Script/ScriptSystem.cpp
+    src/engine/Vfx/ParticleSystemRegistry.cpp
+    src/engine/Vfx/VfxSystem.cpp
 )
 
 # Game source files
@@ -158,6 +182,7 @@ target_link_libraries(FastPhotone PRIVATE
     cgltf
     nlohmann_json
     miniaudio
+    sol2
 )
 
 # Shaders are compiled at runtime by ShaderCache (via $VULKAN_SDK/bin/glslc).

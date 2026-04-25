@@ -3,6 +3,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <thread>
 #include <unordered_map>
 #include <vector>
 
@@ -98,6 +99,11 @@ private:
     static double                s_smoothedFrameMs;
     static ScopeWindow           s_frameWindow;   // smoothing for frame total
     static TimePt                s_frameStart;
+
+    // Captured on the first beginFrame() call. pushScope/popScope no-op on
+    // any other thread — worker threads inside JobSystem::parallel_for
+    // would otherwise corrupt the single-threaded scope stack.
+    static std::thread::id       s_mainThreadId;
 };
 
 // RAII helper used by the macro.

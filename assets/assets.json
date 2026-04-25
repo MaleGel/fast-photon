@@ -43,6 +43,22 @@
         {
             "name": "bright_extract_comp",
             "path": "assets/shaders/bright_extract.comp"
+        },
+        {
+            "name": "vfx_spawn_comp",
+            "path": "assets/shaders/vfx_spawn.comp"
+        },
+        {
+            "name": "vfx_simulate_comp",
+            "path": "assets/shaders/vfx_simulate.comp"
+        },
+        {
+            "name": "vfx_vert",
+            "path": "assets/shaders/vfx.vert"
+        },
+        {
+            "name": "vfx_frag",
+            "path": "assets/shaders/vfx.frag"
         }
     ],
     "fonts": [
@@ -120,5 +136,42 @@
     ],
     "sounds": [],
     "animations": [],
-    "animation_sets": []
+    "animation_sets": [],
+    "particle_systems": [
+        {
+            "name": "asd",
+            "max_particles": 256,
+            "emit_rate": 16.0,
+            "burst_count": 0,
+            "lifetime_min": 1.0,
+            "lifetime_max": 1.0,
+            "velocity_min": [
+                0.0,
+                0.0
+            ],
+            "velocity_max": [
+                0.0,
+                0.0
+            ],
+            "gravity": [
+                0.0,
+                0.0
+            ],
+            "size_start": 0.5,
+            "size_end": 0.0,
+            "color_start": [
+                1.0,
+                1.0,
+                1.0,
+                1.0
+            ],
+            "color_end": [
+                1.0,
+                1.0,
+                1.0,
+                0.0
+            ],
+            "sprite": "tile"
+        }
+    ]
 }

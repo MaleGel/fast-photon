@@ -37,6 +37,7 @@ void ResourceManager::init(const VulkanContext& ctx, AudioDevice& audio, EventBu
 void ResourceManager::shutdown(const VulkanContext& ctx) {
     // Reverse order of dependency: sprites/materials reference textures/shaders,
     // so data registries are cleared first, then GPU caches are destroyed.
+    m_particleSystems.clear();
     m_animations.clear();
     m_sprites.clear();
     m_materials.clear();
@@ -78,6 +79,9 @@ void ResourceManager::loadManifest(const VulkanContext& ctx, const std::string& 
 
     // ── 5b. Animations + animation sets ─────────────────────────────────────
     loadAnimations(doc);
+
+    // ── 5c. Particle systems (VFX) ──────────────────────────────────────────
+    loadParticleSystems(doc);
 
     // ── 6. Materials ────────────────────────────────────────────────────────
     if (doc.contains("materials")) {
@@ -259,6 +263,59 @@ void ResourceManager::loadSounds(const nlohmann::json& doc) {
 
         m_sounds.load(*m_audio, SoundID(name.c_str()), path,
                       GroupID(grp.c_str()), loop);
+    }
+}
+
+// Helper: read a vec2 from a JSON array of length 2, with default fallback.
+static glm::vec2 readVec2(const nlohmann::json& v, const glm::vec2& fallback) {
+    if (v.is_array() && v.size() == 2) {
+        return { v.at(0).get<float>(), v.at(1).get<float>() };
+    }
+    return fallback;
+}
+
+static glm::vec4 readVec4(const nlohmann::json& v, const glm::vec4& fallback) {
+    if (v.is_array() && v.size() == 4) {
+        return { v.at(0).get<float>(), v.at(1).get<float>(),
+                 v.at(2).get<float>(), v.at(3).get<float>() };
+    }
+    return fallback;
+}
+
+void ResourceManager::loadParticleSystems(const nlohmann::json& doc) {
+    if (!doc.contains("particle_systems")) return;
+
+    for (const auto& e : doc.at("particle_systems")) {
+        ParticleSystem ps;
+        const std::string name = e.at("name").get<std::string>();
+
+        // Soft cap to keep authoring mistakes from blowing up VRAM. 4096
+        // already covers most desktop VFX needs; raise the constant if
+        // a real use case demands it.
+        constexpr uint32_t kMaxParticles = 4096;
+        ps.maxParticles = std::min<uint32_t>(
+            e.value("max_particles", 256u), kMaxParticles);
+
+        ps.emitRate    = e.value("emit_rate",    16.0f);
+        ps.burstCount  = e.value("burst_count",  0u);
+        ps.lifetimeMin = e.value("lifetime_min", 1.0f);
+        ps.lifetimeMax = e.value("lifetime_max", 1.0f);
+
+        if (e.contains("velocity_min")) ps.velocityMin = readVec2(e.at("velocity_min"), {0,0});
+        if (e.contains("velocity_max")) ps.velocityMax = readVec2(e.at("velocity_max"), {0,0});
+        if (e.contains("gravity"))      ps.gravity     = readVec2(e.at("gravity"),      {0,0});
+
+        ps.sizeStart = e.value("size_start", 0.5f);
+        ps.sizeEnd   = e.value("size_end",   0.0f);
+
+        if (e.contains("color_start")) ps.colorStart = readVec4(e.at("color_start"), {1,1,1,1});
+        if (e.contains("color_end"))   ps.colorEnd   = readVec4(e.at("color_end"),   {1,1,1,0});
+
+        if (e.contains("sprite")) {
+            ps.sprite = SpriteID(e.at("sprite").get<std::string>().c_str());
+        }
+
+        m_particleSystems.add(ParticleSystemID(name.c_str()), std::move(ps));
     }
 }
 
