@@ -1,0 +1,28 @@
+{
+    "textures": [
+        {
+            "name": "warrior",
+            "path": "assets/textures/player/warrior.png"
+        }
+    ],
+    "sprites": [
+        {
+            "name": "warrior",
+            "texture": "warrior",
+            "x": 0,
+            "y": 0,
+            "w": 64,
+            "h": 64
+        }
+    ],
+    "sounds": [
+        {
+            "name": "warrior_spawn",
+            "path": "assets/audio/player/sfx/warrior_spawn.ogg",
+            "group": "sfx",
+            "loop": false
+        }
+    ],
+    "animations": [],
+    "animation_sets": []
+}

@@ -1,0 +1,48 @@
+#version 450
+
+// Bright-pass extract — keep only the part of the HDR scene whose luminance
+// exceeds the threshold. This is the canonical first step of bloom: the
+// bright image is later blurred and added back on top, so only the
+// brightest things bleed light.
+//
+// We dispatch one workgroup per 16×16 block of pixels. Each invocation
+// handles exactly one output pixel; gl_GlobalInvocationID.xy is the pixel
+// coordinate in the bright image.
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+// HDR scene from the previous pass — sampled as a regular texture.
+layout(set = 0, binding = 0) uniform sampler2D uScene;
+// Bright output — written via imageStore.
+layout(set = 0, binding = 1, rgba16f) uniform writeonly image2D uBright;
+
+layout(push_constant) uniform PushConstants {
+    float threshold;   // luminance below this is dropped
+    float softKnee;    // soft transition width around the threshold
+} pc;
+
+// Rec. 709 luma weights — approximates perceived brightness.
+float luminance(vec3 c) {
+    return dot(c, vec3(0.2126, 0.7152, 0.0722));
+}
+
+void main() {
+    ivec2 size = imageSize(uBright);
+    ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
+    // Overshoot guard: dispatch sizes are rounded up to whole workgroups, so
+    // the last row/column of invocations may fall outside the image.
+    if (coord.x >= size.x || coord.y >= size.y) return;
+
+    // sampler2D uses normalised UVs, so convert from pixel coords.
+    vec2 uv = (vec2(coord) + 0.5) / vec2(size);
+    vec3 c  = texture(uScene, uv).rgb;
+
+    // Soft-knee curve: instead of a hard cutoff at threshold, fade in from
+    // (threshold - softKnee) to (threshold + softKnee). Avoids harsh edges
+    // around objects whose luminance hovers near the threshold.
+    float l = luminance(c);
+    float lower = pc.threshold - pc.softKnee;
+    float upper = pc.threshold + pc.softKnee;
+    float w = smoothstep(lower, upper, l);
+
+    imageStore(uBright, coord, vec4(c * w, 1.0));
+}

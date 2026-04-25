@@ -1,0 +1,21 @@
+{
+    "textures": [
+        {
+            "name": "archer",
+            "path": "assets/textures/enemy/archer.png"
+        }
+    ],
+    "sprites": [
+        {
+            "name": "archer",
+            "texture": "archer",
+            "x": 0,
+            "y": 0,
+            "w": 64,
+            "h": 64
+        }
+    ],
+    "sounds": [],
+    "animations": [],
+    "animation_sets": []
+}

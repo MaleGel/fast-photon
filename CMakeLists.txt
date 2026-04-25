@@ -51,50 +51,91 @@ target_include_directories(cgltf INTERFACE lib/cgltf)
 add_library(nlohmann_json INTERFACE)
 target_include_directories(nlohmann_json INTERFACE lib/json/include)
 
-# Engine source files
+# miniaudio (single-header)
+add_library(miniaudio INTERFACE)
+target_include_directories(miniaudio INTERFACE lib/miniaudio)
+
+# Engine source files — generic, game-agnostic.
 set(ENGINE_SOURCES
-    src/Core/Log/Log.cpp
-    src/Core/Time/Time.cpp
-    src/Core/StringAtom/StringAtom.cpp
-    src/Core/Events/EventBus.cpp
-    src/App/AppController.cpp
-    src/App/GameLoop.cpp
-    src/Platform/Window/Window.cpp
-    src/Platform/Input/Input.cpp
-    src/Platform/Input/InputMap.cpp
-    src/Renderer/VulkanContext.cpp
-    src/Renderer/Swapchain.cpp
-    src/Renderer/RenderPass.cpp
-    src/Renderer/ResourceManager.cpp
-    src/Renderer/ShaderCache.cpp
-    src/Renderer/TextureCache.cpp
-    src/Renderer/Texture.cpp
-    src/Renderer/MaterialRegistry.cpp
-    src/Renderer/SpriteRegistry.cpp
-    src/Renderer/StbImpl.cpp
-    src/Renderer/Pipeline.cpp
-    src/Renderer/DescriptorAllocator.cpp
-    src/Renderer/Vma.cpp
-    src/Renderer/VertexBuffer.cpp
-    src/Renderer/UniformBuffer.cpp
-    src/Renderer/GridRenderer.cpp
-    src/ECS/Systems/RenderSystem.cpp
-    src/ECS/Systems/CameraController.cpp
-    src/ECS/Components/Camera/CameraConfig.cpp
-    src/Gameplay/GridMap/GridMap.cpp
-    src/Gameplay/TurnManager/TurnManager.cpp
+    src/engine/Core/Log/Log.cpp
+    src/engine/Core/Time/Time.cpp
+    src/engine/Core/StringAtom/StringAtom.cpp
+    src/engine/Core/Events/EventBus.cpp
+    src/engine/Core/StringUtil/Utf8.cpp
+    src/engine/Core/Profiler/Profiler.cpp
+    src/engine/Core/Profiler/ProfilerWindow.cpp
+    src/engine/Core/Profiler/GpuProfiler.cpp
+    src/engine/Core/Profiler/GpuProfilerWindow.cpp
+    src/engine/App/AppController.cpp
+    src/engine/App/GameLoop.cpp
+    src/engine/Platform/SdlContext.cpp
+    src/engine/Platform/Window/Window.cpp
+    src/engine/Platform/Input/Input.cpp
+    src/engine/Platform/Input/InputMap.cpp
+    src/engine/Platform/FileWatcher.cpp
+    src/engine/Audio/AudioImpl.cpp
+    src/engine/Audio/AudioDevice.cpp
+    src/engine/Audio/SoundCache.cpp
+    src/engine/Audio/AudioConfig.cpp
+    src/engine/Renderer/VulkanContext.cpp
+    src/engine/Renderer/Swapchain.cpp
+    src/engine/Renderer/RenderPass.cpp
+    src/engine/Renderer/SwapchainRenderPass.cpp
+    src/engine/Renderer/HdrTarget.cpp
+    src/engine/Renderer/BrightImage.cpp
+    src/engine/Renderer/ComputePipeline.cpp
+    src/engine/Renderer/BrightExtractPass.cpp
+    src/engine/Renderer/PostProcess.cpp
+    src/engine/Renderer/ResourceManager.cpp
+    src/engine/Renderer/ShaderCache.cpp
+    src/engine/Renderer/TextureCache.cpp
+    src/engine/Renderer/Texture.cpp
+    src/engine/Renderer/MaterialRegistry.cpp
+    src/engine/Renderer/SpriteRegistry.cpp
+    src/engine/Renderer/StbImpl.cpp
+    src/engine/Renderer/Pipeline.cpp
+    src/engine/Renderer/DescriptorAllocator.cpp
+    src/engine/Renderer/RenderQueue.cpp
+    src/engine/Renderer/FrameRenderer.cpp
+    src/engine/Renderer/ImGuiLayer.cpp
+    src/engine/Renderer/Vma.cpp
+    src/engine/Renderer/VertexBuffer.cpp
+    src/engine/Renderer/UniformBuffer.cpp
+    src/engine/Renderer/SpriteRenderer.cpp
+    src/engine/Renderer/DebugDraw.cpp
+    src/engine/Renderer/FontRegistry.cpp
+    src/engine/Renderer/FontAtlasBuilder.cpp
+    src/engine/Renderer/TextRenderer.cpp
+    src/engine/Scene/Components/Camera/CameraConfig.cpp
+    src/engine/Scene/PrefabRegistry.cpp
+    src/engine/Animation/AnimationRegistry.cpp
+    src/engine/Animation/AnimationSystem.cpp
+)
+
+# Game source files
+set(GAME_SOURCES
+    src/game/Gameplay/GridMap/GridMap.cpp
+    src/game/Gameplay/TurnManager/TurnManager.cpp
+    src/game/Renderer/GridRenderer.cpp
+    src/game/Scene/World.cpp
+    src/game/Scene/JsonSceneLoader.cpp
+    src/game/Systems/CameraController.cpp
+    src/game/Systems/RenderSystem.cpp
+    src/game/Systems/SelectionSystem.cpp
 )
 
 # Executable
 add_executable(FastPhotone
-    src/main.cpp
+    src/game/main.cpp
     ${ENGINE_SOURCES}
+    ${GAME_SOURCES}
 )
 
-# Include paths
+# Include roots: engine and game are addressed relative to these paths, so
+# existing #include "Core/Log/Log.h" / "Gameplay/GridMap/GridMap.h" keep working.
 target_include_directories(FastPhotone PRIVATE
-    ${CMAKE_SOURCE_DIR}/src
-    ${CMAKE_SOURCE_DIR}/src/Core
+    ${CMAKE_SOURCE_DIR}/src/engine
+    ${CMAKE_SOURCE_DIR}/src/game
 )
 
 # Debug / Release defines
@@ -116,39 +157,28 @@ target_link_libraries(FastPhotone PRIVATE
     stb
     cgltf
     nlohmann_json
+    miniaudio
 )
 
-# ── Shader compilation (GLSL → SPIR-V via glslc) ──────────────────────
-# glslc ships with the Vulkan SDK. Newer CMake (3.21+) sets Vulkan_GLSLC_EXECUTABLE
-# through find_package(Vulkan); fall back to manual lookup on older systems.
-if(NOT Vulkan_GLSLC_EXECUTABLE)
-    find_program(Vulkan_GLSLC_EXECUTABLE glslc HINTS ENV VULKAN_SDK PATH_SUFFIXES Bin bin)
-endif()
-if(NOT Vulkan_GLSLC_EXECUTABLE)
-    message(FATAL_ERROR "glslc not found. Install Vulkan SDK or set VULKAN_SDK env.")
-endif()
-message(STATUS "Using glslc: ${Vulkan_GLSLC_EXECUTABLE}")
+# Shaders are compiled at runtime by ShaderCache (via $VULKAN_SDK/bin/glslc).
+# This keeps hot-reload and startup on a single codepath — no build-time
+# .spv generation needed.
 
-set(SHADER_SOURCES
-    ${CMAKE_SOURCE_DIR}/assets/shaders/grid.vert
-    ${CMAKE_SOURCE_DIR}/assets/shaders/grid.frag
+# ── Manifest baker ────────────────────────────────────────────────────
+# Consolidates per-faction assets/data/factions/*/assets.json on top of
+# the common assets/assets.json into assets/assets.baked.json (which the
+# engine reads at startup). Runs PRE_BUILD so the copy step below picks
+# up a fresh baked file. We also fail the build on bake validation
+# errors — a dangling reference in the source manifests is cheaper to
+# diagnose here than at runtime.
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+add_custom_command(TARGET FastPhotone PRE_BUILD
+    COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_SOURCE_DIR}/tools/manifest_baker/bake.py
+            ${CMAKE_SOURCE_DIR}
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    COMMENT "Baking asset manifest"
 )
-
-set(SHADER_OUTPUTS)
-foreach(SHADER ${SHADER_SOURCES})
-    set(SPV "${SHADER}.spv")
-    add_custom_command(
-        OUTPUT  ${SPV}
-        COMMAND ${Vulkan_GLSLC_EXECUTABLE} ${SHADER} -o ${SPV}
-        DEPENDS ${SHADER}
-        COMMENT "Compiling shader ${SHADER}"
-        VERBATIM
-    )
-    list(APPEND SHADER_OUTPUTS ${SPV})
-endforeach()
-
-add_custom_target(Shaders DEPENDS ${SHADER_OUTPUTS})
-add_dependencies(FastPhotone Shaders)
 
 # Copy assets folder next to the executable after build
 add_custom_command(TARGET FastPhotone POST_BUILD

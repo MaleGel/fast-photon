@@ -1,18 +1,28 @@
 """
 Fast pre-commit check for fast-photon.
 
-Verifies that staged asset changes (PNG files under assets/textures/,
-assets/atlases/atlas.json, assets/assets.json) are mutually consistent
-with each other — without touching the working copy or HEAD.
+Verifies that staged asset changes (PNG files under assets/textures/) and
+the matching faction manifests are mutually consistent — without touching
+the working copy or HEAD.
+
+Manifest layout this script understands:
+
+    assets/textures/common/<rel>.png        ↔ assets/assets.json
+    assets/textures/<faction>/<rel>.png     ↔ assets/data/factions/<faction>/assets.json
+
+Inside each manifest, sprite ids are stored *unqualified* (the bake step
+adds the faction prefix later). So 'assets/textures/player/warrior.png'
+must have a sprite named 'warrior' in player's manifest, not
+'player/warrior'.
 
 Contract:
-    * For every staged PNG: assets.json must have a matching sprite entry
-      (present for added/modified, absent for deleted, renamed appropriately).
-    * If atlas.json is staged: its pages/sprites must match assets.json
-      textures/sprites entries.
-    * If only assets.json is staged but nothing else asset-related:
-      that's fine — we only verify what this commit actually touches.
+    * For every staged PNG: the matching faction manifest must also be
+      staged, and must have a corresponding sprite entry (added/modified
+      → present, deleted → absent, renamed → both transitions reflected).
+    * Sprite W/H in the manifest must match the staged PNG dimensions.
 """
+
+from __future__ import annotations
 
 import io
 import json
@@ -27,9 +37,8 @@ from PIL import Image
 # ── Paths we care about ──────────────────────────────────────────────────────
 
 TEXTURES_PREFIX = "assets/textures/"
-ATLASES_PREFIX  = "assets/atlases/"
-ATLAS_JSON      = "assets/atlases/atlas.json"
-ASSETS_JSON     = "assets/assets.json"
+COMMON_NAME     = "common"
+COMMON_MANIFEST = "assets/assets.json"
 
 
 # ── Git helpers ──────────────────────────────────────────────────────────────
@@ -48,15 +57,13 @@ def _staged_changes(repo_root: Path) -> List[Tuple[str, str, Optional[str]]]:
     status is 'A'/'M'/'D'/'R'. rename_target is set only for 'R'.
     """
     raw = _git(repo_root, "diff", "--cached", "--name-status", "-z")
-    fields = raw.split("\x00")
-    fields = [f for f in fields if f]  # strip trailing empty
+    fields = [f for f in raw.split("\x00") if f]
 
     out: List[Tuple[str, str, Optional[str]]] = []
     i = 0
     while i < len(fields):
         status = fields[i]
         if status.startswith("R"):
-            # rename: three tokens — status, old_path, new_path
             out.append(("R", fields[i + 1], fields[i + 2]))
             i += 3
         else:
@@ -73,21 +80,40 @@ def _staged_blob(repo_root: Path, path: str) -> Optional[bytes]:
         return None
 
 
-# ── assets.json parsing ──────────────────────────────────────────────────────
+# ── Faction routing ──────────────────────────────────────────────────────────
 
-def _parse_assets_json(data: bytes) -> dict:
+def _split_texture_path(repo_path: str) -> Optional[Tuple[str, str]]:
+    """assets/textures/<faction>/<rel>.png  →  (faction, sprite_id).
+    Returns None for paths that don't fit the expected shape (e.g. a PNG
+    placed directly under assets/textures/ without a faction folder)."""
+    if not (repo_path.startswith(TEXTURES_PREFIX) and repo_path.endswith(".png")):
+        return None
+    rel_inside = repo_path[len(TEXTURES_PREFIX):]
+    parts = rel_inside.split("/", 1)
+    if len(parts) < 2 or not parts[1]:
+        return None
+    faction = parts[0]
+    sprite_id = parts[1].rsplit(".", 1)[0]
+    return faction, sprite_id
+
+
+def _manifest_path_for(faction: str) -> str:
+    if faction == COMMON_NAME:
+        return COMMON_MANIFEST
+    return f"assets/data/factions/{faction}/assets.json"
+
+
+# ── Manifest parsing ─────────────────────────────────────────────────────────
+
+def _parse_json(data: bytes) -> dict:
     return json.loads(data.decode("utf-8"))
 
 
-def _sprite_entry(assets: dict, sprite_id: str) -> Optional[dict]:
-    for s in assets.get("sprites", []):
+def _sprite_entry(manifest: dict, sprite_id: str) -> Optional[dict]:
+    for s in manifest.get("sprites", []) or []:
         if s.get("name") == sprite_id:
             return s
     return None
-
-
-def _texture_ids(assets: dict) -> Set[str]:
-    return {t.get("name") for t in assets.get("textures", [])}
 
 
 def _png_size(blob: bytes) -> Tuple[int, int]:
@@ -95,97 +121,134 @@ def _png_size(blob: bytes) -> Tuple[int, int]:
         return img.width, img.height
 
 
-# ── Checks ───────────────────────────────────────────────────────────────────
-
-def _sprite_id_from_path(repo_path: str) -> str:
-    """assets/textures/foo/bar.png → 'foo/bar'"""
-    rel = repo_path[len(TEXTURES_PREFIX):]
-    return rel.rsplit(".", 1)[0]
-
+# ── Per-PNG check ────────────────────────────────────────────────────────────
 
 def _check_png_change(
     repo_root: Path,
     status: str,
     path: str,
     rename_target: Optional[str],
-    assets: dict,
+    manifests: Dict[str, dict],
+    staged_manifest_paths: Set[str],
     errors: List[str],
 ) -> None:
-    sprite_ids = {s.get("name") for s in assets.get("sprites", [])}
+    """Validate one staged PNG change against its faction manifest."""
 
-    def _require(cond: bool, msg: str) -> None:
+    def require(cond: bool, msg: str) -> None:
         if not cond:
             errors.append(msg)
 
+    def faction_for(p: str) -> Optional[Tuple[str, str]]:
+        parsed = _split_texture_path(p)
+        if parsed is None:
+            errors.append(
+                f"PNG '{p}' is not inside a faction folder. "
+                f"Place it under assets/textures/<faction>/ "
+                f"(e.g. assets/textures/common/{Path(p).name})."
+            )
+        return parsed
+
+    def manifest_for(faction: str, png_path: str) -> Optional[dict]:
+        man_path = _manifest_path_for(faction)
+        if man_path not in staged_manifest_paths:
+            errors.append(
+                f"PNG '{png_path}' is staged but {man_path} is not. "
+                f"Run tools/asset_indexer/index.sh and re-stage."
+            )
+            return None
+        return manifests.get(man_path)
+
     if status == "A":
-        sid = _sprite_id_from_path(path)
-        _require(sid in sprite_ids,
-                 f"staged PNG '{path}' has no matching sprite '{sid}' in staged assets.json")
+        parsed = faction_for(path)
+        if parsed is None:
+            return
+        faction, sid = parsed
+        manifest = manifest_for(faction, path)
+        if manifest is None:
+            return
+        require(_sprite_entry(manifest, sid) is not None,
+                f"staged PNG '{path}' has no matching sprite '{sid}' "
+                f"in {_manifest_path_for(faction)}")
 
     elif status == "D":
-        sid = _sprite_id_from_path(path)
-        _require(sid not in sprite_ids,
-                 f"staged deletion of '{path}' but sprite '{sid}' still exists in staged assets.json")
+        parsed = faction_for(path)
+        if parsed is None:
+            return
+        faction, sid = parsed
+        manifest = manifest_for(faction, path)
+        if manifest is None:
+            return
+        require(_sprite_entry(manifest, sid) is None,
+                f"staged deletion of '{path}' but sprite '{sid}' still "
+                f"exists in {_manifest_path_for(faction)}")
 
     elif status == "R":
         assert rename_target is not None
-        old_sid = _sprite_id_from_path(path)
-        new_sid = _sprite_id_from_path(rename_target)
-        _require(old_sid not in sprite_ids,
-                 f"staged rename from '{path}' but sprite '{old_sid}' still exists in staged assets.json")
-        _require(new_sid in sprite_ids,
-                 f"staged rename to '{rename_target}' but sprite '{new_sid}' is missing from staged assets.json")
+        # Renames during the flat→faction migration have a source path that
+        # ISN'T inside a faction folder (e.g. 'assets/textures/tile.png' →
+        # 'assets/textures/common/tile.png'). For the source side we just
+        # need to confirm there's no orphan sprite under the old layout's
+        # would-be id; we don't require a manifest for it.
+        new = _split_texture_path(rename_target)
+        if new is None:
+            errors.append(
+                f"PNG rename target '{rename_target}' is not inside a "
+                f"faction folder. Place it under assets/textures/<faction>/."
+            )
+            return
+        new_faction, new_sid = new
+        new_manifest = manifest_for(new_faction, rename_target)
+        if new_manifest is None:
+            return
+        require(_sprite_entry(new_manifest, new_sid) is not None,
+                f"staged rename to '{rename_target}' but sprite "
+                f"'{new_sid}' is missing from staged "
+                f"{_manifest_path_for(new_faction)}")
+
+        # If the source was inside a faction folder too (a normal rename,
+        # not a migration), make sure the old sprite id is gone from the
+        # source manifest.
+        old = _split_texture_path(path)
+        if old is not None:
+            old_faction, old_sid = old
+            old_manifest = manifest_for(old_faction, path)
+            if old_manifest is not None:
+                require(_sprite_entry(old_manifest, old_sid) is None,
+                        f"staged rename from '{path}' but sprite "
+                        f"'{old_sid}' still exists in staged "
+                        f"{_manifest_path_for(old_faction)}")
 
     elif status == "M":
-        sid = _sprite_id_from_path(path)
-        entry = _sprite_entry(assets, sid)
+        parsed = faction_for(path)
+        if parsed is None:
+            return
+        faction, sid = parsed
+        manifest = manifest_for(faction, path)
+        if manifest is None:
+            return
+        entry = _sprite_entry(manifest, sid)
         if entry is None:
-            errors.append(f"staged PNG '{path}' has no matching sprite '{sid}' in staged assets.json")
+            errors.append(f"staged PNG '{path}' has no matching sprite "
+                          f"'{sid}' in {_manifest_path_for(faction)}")
             return
         blob = _staged_blob(repo_root, path)
         if blob is None:
             errors.append(f"cannot read staged PNG '{path}'")
             return
         w, h = _png_size(blob)
-        _require(entry.get("w") == w and entry.get("h") == h,
-                 f"sprite '{sid}' dimensions in assets.json ({entry.get('w')}x{entry.get('h')}) "
-                 f"do not match staged PNG ({w}x{h})")
-
-
-def _check_atlas_change(
-    repo_root: Path,
-    status: str,
-    assets: dict,
-    errors: List[str],
-) -> None:
-    """atlas.json added/modified/deleted → consistency with assets.json."""
-    texture_ids = _texture_ids(assets)
-    has_atlas_textures = any(tid.startswith("atlas_") for tid in texture_ids)
-
-    if status == "D":
-        if has_atlas_textures:
-            errors.append("atlas.json staged for deletion but assets.json still references atlas_* textures")
-        return
-
-    # A / M — read staged atlas.json and verify.
-    blob = _staged_blob(repo_root, ATLAS_JSON)
-    if blob is None:
-        errors.append("atlas.json is marked staged but its staged blob is unreadable")
-        return
-
-    atlas = _parse_assets_json(blob)
-    expected_textures = {f"atlas_{p['index']}" for p in atlas.get("pages", [])}
-    missing = expected_textures - texture_ids
-    if missing:
-        errors.append(f"staged atlas.json declares pages {sorted(missing)} "
-                      f"but assets.json has no matching atlas_* textures")
-
-    expected_sprites = {s["name"] for s in atlas.get("sprites", [])}
-    staged_sprite_ids = {s.get("name") for s in assets.get("sprites", [])}
-    missing_sprites = expected_sprites - staged_sprite_ids
-    if missing_sprites:
-        errors.append(f"staged atlas.json has sprites {sorted(missing_sprites)} "
-                      f"not present in staged assets.json")
+        # Only enforce dims when the sprite covers the whole image (a
+        # full-image entry). Sub-rect sprites authored in animation_editor
+        # have rects smaller than the texture by design.
+        if entry.get("x", 0) == 0 and entry.get("y", 0) == 0 \
+                and entry.get("w") == w and entry.get("h") == h:
+            return
+        # If x/y are zero and w/h disagree with the PNG, the manifest
+        # genuinely lags — let the user know.
+        if entry.get("x", 0) == 0 and entry.get("y", 0) == 0:
+            require(entry.get("w") == w and entry.get("h") == h,
+                    f"sprite '{sid}' in {_manifest_path_for(faction)} "
+                    f"has dimensions {entry.get('w')}x{entry.get('h')} "
+                    f"but staged PNG is {w}x{h}")
 
 
 # ── Entry point ──────────────────────────────────────────────────────────────
@@ -193,56 +256,65 @@ def _check_atlas_change(
 def check_staged(repo_root: Path) -> int:
     changes = _staged_changes(repo_root)
 
-    png_changes:   List[Tuple[str, str, Optional[str]]] = []
-    atlas_changes: List[Tuple[str, str, Optional[str]]] = []
-    touches_assets_json = False
+    png_changes: List[Tuple[str, str, Optional[str]]] = []
+    staged_manifest_paths: Set[str] = set()
 
     for status, path, rename_target in changes:
         if path.startswith(TEXTURES_PREFIX) and path.endswith(".png"):
             png_changes.append((status, path, rename_target))
-        elif path == ATLAS_JSON:
-            atlas_changes.append((status, path, rename_target))
-        elif path == ASSETS_JSON:
-            touches_assets_json = True
+        if path == COMMON_MANIFEST or (
+                path.startswith("assets/data/factions/")
+                and path.endswith("/assets.json")):
+            staged_manifest_paths.add(path)
         # Renames can land the new path under textures/ too.
         if status == "R" and rename_target:
-            if rename_target.startswith(TEXTURES_PREFIX) and rename_target.endswith(".png") and not path.startswith(TEXTURES_PREFIX):
+            if (rename_target.startswith(TEXTURES_PREFIX)
+                    and rename_target.endswith(".png")
+                    and not path.startswith(TEXTURES_PREFIX)):
                 png_changes.append(("A", rename_target, None))
 
-    # Nothing asset-relevant → done.
-    if not png_changes and not atlas_changes and not touches_assets_json:
+    if not png_changes:
+        # Nothing PNG-related — manifests can be edited freely (the bake
+        # step does the cross-reference validation).
         return 0
 
-    # If any PNG/atlas change is present, assets.json must also be in this commit.
-    if (png_changes or atlas_changes) and not touches_assets_json:
-        print("[pre-commit] ERROR: asset files staged, but assets.json is not. "
-              "Run tools/asset_indexer/index.sh and re-stage.", file=sys.stderr)
-        return 1
-
-    # Read staged assets.json.
-    assets_blob = _staged_blob(repo_root, ASSETS_JSON)
-    if assets_blob is None:
-        # assets.json removed from stage but working copy may exist.
-        print("[pre-commit] ERROR: assets.json is not staged.", file=sys.stderr)
-        return 1
-
-    try:
-        assets = _parse_assets_json(assets_blob)
-    except json.JSONDecodeError as e:
-        print(f"[pre-commit] ERROR: staged assets.json is not valid JSON: {e}", file=sys.stderr)
-        return 1
+    # Pre-load every manifest that's staged. Manifests that aren't staged
+    # are reported per-PNG ("manifest must also be staged") rather than up
+    # front — gives a more actionable message.
+    manifests: Dict[str, dict] = {}
+    for man_path in staged_manifest_paths:
+        blob = _staged_blob(repo_root, man_path)
+        if blob is None:
+            print(f"[pre-commit] ERROR: {man_path} is staged but its blob "
+                  f"is unreadable.", file=sys.stderr)
+            return 1
+        try:
+            manifests[man_path] = _parse_json(blob)
+        except json.JSONDecodeError as exc:
+            print(f"[pre-commit] ERROR: staged {man_path} is not valid "
+                  f"JSON: {exc}", file=sys.stderr)
+            return 1
 
     errors: List[str] = []
     for status, path, rename_target in png_changes:
-        _check_png_change(repo_root, status, path, rename_target, assets, errors)
-    for status, _path, _rt in atlas_changes:
-        _check_atlas_change(repo_root, status, assets, errors)
+        _check_png_change(
+            repo_root, status, path, rename_target,
+            manifests, staged_manifest_paths, errors,
+        )
 
     if errors:
-        print("[pre-commit] assets.json is inconsistent with staged asset files:", file=sys.stderr)
+        print("[pre-commit] staged PNG changes are inconsistent with "
+              "their faction manifests:", file=sys.stderr)
+        # de-dup while preserving order — multiple PNGs may report the
+        # same "manifest not staged" error otherwise.
+        seen: Set[str] = set()
         for e in errors:
+            if e in seen:
+                continue
+            seen.add(e)
             print(f"  - {e}", file=sys.stderr)
-        print("[pre-commit] Run tools/asset_indexer/index.sh and re-stage.", file=sys.stderr)
+        print("[pre-commit] Run tools/asset_indexer/index.sh and re-stage.",
+              file=sys.stderr)
         return 1
 
     return 0

@@ -1,0 +1,8 @@
+{
+    "components": {
+        "Tag":     "Archer",
+        "Faction": "Enemy",
+        "Render":  { "color":  [0.2, 1.0, 0.4, 1.0] },
+        "Sprite":  { "id": "enemy/archer", "size": [1.0, 1.0] }
+    }
+}

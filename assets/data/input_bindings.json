@@ -9,6 +9,9 @@
         "camera.pan_down":    ["S", "Down"],
 
         "camera.zoom_in":     ["MouseWheelUp"],
-        "camera.zoom_out":    ["MouseWheelDown"]
+        "camera.zoom_out":    ["MouseWheelDown"],
+
+        "tile.select":        ["Mouse1"],
+        "tile.cancel":        ["Mouse2"]
     }
 }

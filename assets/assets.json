@@ -2,17 +2,60 @@
     "shaders": [
         {
             "name": "grid_vert",
-            "path": "assets/shaders/grid.vert.spv"
+            "path": "assets/shaders/grid.vert"
         },
         {
             "name": "grid_frag",
-            "path": "assets/shaders/grid.frag.spv"
+            "path": "assets/shaders/grid.frag"
+        },
+        {
+            "name": "text_vert",
+            "path": "assets/shaders/text.vert"
+        },
+        {
+            "name": "text_frag",
+            "path": "assets/shaders/text.frag"
+        },
+        {
+            "name": "sprite_vert",
+            "path": "assets/shaders/sprite.vert"
+        },
+        {
+            "name": "sprite_frag",
+            "path": "assets/shaders/sprite.frag"
+        },
+        {
+            "name": "debug_vert",
+            "path": "assets/shaders/debug.vert"
+        },
+        {
+            "name": "debug_frag",
+            "path": "assets/shaders/debug.frag"
+        },
+        {
+            "name": "post_vert",
+            "path": "assets/shaders/post.vert"
+        },
+        {
+            "name": "post_frag",
+            "path": "assets/shaders/post.frag"
+        },
+        {
+            "name": "bright_extract_comp",
+            "path": "assets/shaders/bright_extract.comp"
+        }
+    ],
+    "fonts": [
+        {
+            "name": "ui_24",
+            "path": "assets/fonts/Roboto_Condensed-Medium.ttf",
+            "size": 24
         }
     ],
     "textures": [
         {
             "name": "tile",
-            "path": "assets/textures/tile.png"
+            "path": "assets/textures/common/tile.png"
         }
     ],
     "sprites": [
@@ -74,5 +117,8 @@
                 1.0
             ]
         }
-    ]
+    ],
+    "sounds": [],
+    "animations": [],
+    "animation_sets": []
 }

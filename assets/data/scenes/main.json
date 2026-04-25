@@ -1,0 +1,25 @@
+{
+    "grid": {
+        "width":  32,
+        "height": 32,
+        "overrides": [
+            { "col": 3, "row": 3, "type": "mountain", "passable": false },
+            { "col": 3, "row": 4, "type": "water",    "passable": false },
+            { "col": 1, "row": 1, "type": "forest",   "movementCost": 2 }
+        ]
+    },
+
+    "turn": {
+        "factionOrder":   ["Player", "Enemy"],
+        "actionsPerTurn": 2
+    },
+
+    "camera": {
+        "position": [4.0, 4.0]
+    },
+
+    "entities": [
+        { "prefab": "player/units/warrior", "grid": { "col": 2, "row": 3 } },
+        { "prefab": "enemy/units/archer",   "grid": { "col": 4, "row": 1 } }
+    ]
+}
